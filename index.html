@@ -1,0 +1,973 @@
+<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"></head><body><title>ぬりえAR</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Zen+Maru+Gothic:wght@500;700;900&display=swap">
+<style>
+/* Layout: 1画面ずつ進む3ステップ(撮る→切り抜く→動かす)。ステージは画面いっぱい、操作は下のパネルに集約 */
+:root{
+  --bg:#f3f5fb; --panel:#ffffff; --ink:#18203d; --muted:#586184; --line:#d8ddef;
+  --red:#e63e68; --yellow:#f6b92b; --green:#0bb98a; --blue:#0f7fa8; --accent:#0f7fa8; --on-accent:#ffffff;
+  --stage:#0c1226; --shadow:0 6px 20px rgba(24,32,61,.14);
+  --font-d:"Mochiy Pop One","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif;
+  --font-b:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1430; --panel:#19214a; --ink:#eef1ff; --muted:#a6afd6; --line:#2c3768;
+  --red:#ff6b8f; --yellow:#ffcf5c; --green:#2fe0ad; --blue:#4cc3ee; --accent:#4cc3ee; --on-accent:#08162a;
+  --stage:#050914; --shadow:0 6px 20px rgba(0,0,0,.45); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1430; --panel:#19214a; --ink:#eef1ff; --muted:#a6afd6; --line:#2c3768;
+  --red:#ff6b8f; --yellow:#ffcf5c; --green:#2fe0ad; --blue:#4cc3ee; --accent:#4cc3ee; --on-accent:#08162a;
+  --stage:#050914; --shadow:0 6px 20px rgba(0,0,0,.45); color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-b);font-weight:500;
+  padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  -webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+*{box-sizing:border-box}
+.app{height:100%;max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:10px;min-height:0}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.brand{font-family:var(--font-d);font-size:26px;line-height:1;letter-spacing:.02em;white-space:nowrap}
+.brand span:nth-child(1){color:var(--red)}.brand span:nth-child(2){color:var(--yellow)}
+.brand span:nth-child(3){color:var(--green)}.brand span:nth-child(4){color:var(--blue)}
+.brand small{font-family:var(--font-b);font-weight:900;font-size:13px;color:var(--muted);margin-left:6px;letter-spacing:.08em}
+.steps{display:flex;gap:6px;list-style:none;margin:0;padding:0}
+.steps li{font-size:11px;font-weight:900;padding:5px 8px;border-radius:99px;background:var(--panel);color:var(--muted);border:2px solid var(--line);white-space:nowrap}
+.steps li.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.steps li.done{color:var(--green);border-color:var(--green)}
+section{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px}
+section[hidden]{display:none!important}
+.view{flex:1;min-height:0;position:relative;background:var(--stage);border-radius:20px;overflow:hidden;display:grid;place-items:center;box-shadow:var(--shadow)}
+.view video,.view canvas{max-width:100%;max-height:100%;display:block}
+#lineView{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain}
+#cam{width:100%;height:100%;object-fit:contain}
+#cam.off{position:fixed;width:2px;height:2px;opacity:.01;pointer-events:none;left:0;top:0}
+.guide{position:absolute;inset:6%;border-radius:10px;pointer-events:none;
+  background:
+   linear-gradient(var(--yellow),var(--yellow)) top left/26px 4px no-repeat,linear-gradient(var(--yellow),var(--yellow)) top left/4px 26px no-repeat,
+   linear-gradient(var(--yellow),var(--yellow)) top right/26px 4px no-repeat,linear-gradient(var(--yellow),var(--yellow)) top right/4px 26px no-repeat,
+   linear-gradient(var(--yellow),var(--yellow)) bottom left/26px 4px no-repeat,linear-gradient(var(--yellow),var(--yellow)) bottom left/4px 26px no-repeat,
+   linear-gradient(var(--yellow),var(--yellow)) bottom right/26px 4px no-repeat,linear-gradient(var(--yellow),var(--yellow)) bottom right/4px 26px no-repeat}
+.hint{position:absolute;left:12px;right:12px;bottom:12px;text-align:center;color:#fff;font-weight:900;font-size:14px;
+  text-shadow:0 1px 4px rgba(0,0,0,.8);pointer-events:none}
+.nocam{padding:24px;text-align:center;color:#fff;line-height:1.7;font-weight:700}
+.panel{background:var(--panel);border-radius:20px;padding:12px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow);border:2px solid var(--line)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1 1 0;min-width:0}
+button,.btn{font:inherit;font-weight:900;font-size:15px;border:0;border-radius:14px;padding:13px 10px;min-height:48px;cursor:pointer;
+  background:var(--bg);color:var(--ink);border:2px solid var(--line);text-align:center;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button.main{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button.shot{background:var(--red);border-color:var(--red);color:#fff}
+button:active{transform:scale(.97)}
+button:disabled{opacity:.45}
+button:focus-visible,input:focus-visible,.btn:focus-within{outline:3px solid var(--yellow);outline-offset:2px}
+.btn input{position:absolute;opacity:0;width:1px;height:1px}
+.btn{position:relative}
+label.sl{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:900;color:var(--muted)}
+label.sl input{flex:1;min-width:0;accent-color:var(--accent)}
+.checker{background:conic-gradient(#c9cfe6 25%,#eef0fa 0 50%,#c9cfe6 0 75%,#eef0fa 0) 0 0/20px 20px}
+.chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.chips button{padding:8px 2px;min-height:44px;font-size:13px;line-height:1.15;flex-direction:column;border-radius:12px}
+.chips button.on{background:var(--yellow);border-color:var(--yellow);color:#18203d}
+.tools{display:flex;gap:6px}
+.tools button{flex:1;min-width:0;padding:10px 4px;font-size:13px}
+.tools button.on{background:var(--green);border-color:var(--green);color:#06241b}
+.stat{font-size:12px;color:var(--muted);font-weight:700;text-align:center}
+.modal{position:fixed;inset:0;background:rgba(5,9,20,.82);display:grid;place-items:center;z-index:20;padding:16px}
+.modal[hidden]{display:none!important}
+.card{background:var(--panel);border-radius:22px;padding:14px;max-width:420px;width:100%;max-height:100%;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.card input[type=text],.card input[type=number]{font:inherit;font-weight:700;padding:11px 12px;border-radius:12px;border:2px solid var(--line,#dfe5f5);background:#fff;color:#1d2540;box-sizing:border-box}
+.card img{width:100%;border-radius:12px;display:block;-webkit-touch-callout:default}
+.card p{margin:0;text-align:center;font-weight:900;font-size:14px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.seg button{min-height:42px;padding:8px 2px;font-size:13px}
+.seg button.on{background:var(--yellow);border-color:var(--yellow);color:#18203d}
+#s4 .view{background:conic-gradient(#d9deee 25%,#fff 0 50%,#d9deee 0 75%,#fff 0) 0 0/18px 18px}
+#faceStyles button{font-size:13px;padding:9px 6px;min-height:42px}
+#faceStyles button.on{background:var(--green);border-color:var(--green);color:#06241b}
+input[type=text]{font:inherit;font-weight:700;font-size:15px;border:2px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg);color:var(--ink);min-width:0;width:100%}
+.gal{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.thumb{flex-direction:column;padding:6px;gap:4px;min-height:0;font-size:13px;background:#fff;color:#18203d;border-color:var(--line)}
+.thumb img{width:100%;aspect-ratio:720/870;object-fit:contain;display:block}
+.sw{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.sw button{min-height:36px;padding:0;border-radius:12px;border:3px solid var(--line)}
+.sw button.on{border-color:var(--ink);box-shadow:0 0 0 2px var(--yellow)}
+#paintView{touch-action:none;position:relative}
+#paintInner{position:absolute;transform-origin:0 0;touch-action:none}
+#paintInner canvas{position:absolute;left:0;top:0;width:100%;height:100%;max-width:none;max-height:none}
+#printArea{display:none}
+@media print{html,body{background:#fff!important;padding:0!important}body>.app,body>.modal,.app,.modal{display:none!important}#printArea{display:block!important}#printArea img{width:210mm;height:297mm;display:block}@page{size:A4;margin:0}}
+@media (max-width:440px){.brand small{display:none}.chips button{font-size:12px}}
+@media (max-height:640px){.brand small{display:none}.panel{padding:8px}button{min-height:42px;padding:8px}}
+@media (prefers-reduced-motion:reduce){button:active{transform:none}}
+</style>
+
+<div class="app">
+  <header>
+    <div class="brand"><span>ぬ</span><span>り</span><span>え</span><span>AR</span><small>長井産業博</small></div>
+    <ol class="steps" id="steps"><li class="on">1 撮る</li><li>2 切り抜く</li><li>3 動かす</li></ol>
+  </header>
+
+  <!-- STEP1 -->
+  <section id="s1">
+    <div class="view">
+      <video id="cam" playsinline muted autoplay></video>
+      <div class="guide" id="guide"></div>
+      <div class="nocam" id="nocam" hidden>カメラを使えない場合は、下の「写真を選ぶ」から、ぬりえを撮影した写真を選んでください。</div>
+      <div class="hint" id="hint">ぬりえを枠いっぱいに写してね</div>
+    </div>
+    <div class="panel">
+      <div class="seg"><button id="tabShoot" class="on">ぬりえを撮る</button><button id="tabMake">塗り絵をつくる</button><button id="tabPaint">画面で塗る</button></div>
+      <div class="row">
+        <button class="shot" id="btnShot">撮影する</button>
+        <label class="btn">写真を選ぶ<input type="file" id="file" accept="image/*"></label>
+        <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+      </div>
+      <button id="btnDemo">見本のぬりえで試す</button>
+    </div>
+  </section>
+
+  <!-- STEP2 -->
+  <section id="s2" hidden>
+    <div class="view checker"><canvas id="trim"></canvas></div>
+    <div class="panel">
+      <label class="sl">切り抜きの強さ<input type="range" id="sens" min="4" max="40" value="14"></label>
+      <div class="row">
+        <button id="btnSquare">四角のまま使う</button>
+        <button id="btnRetake">撮り直す</button>
+      </div>
+      <button class="main" id="btnOk">これで動かす</button>
+    </div>
+  </section>
+
+  <!-- STEP3 -->
+  <section id="s3" hidden>
+    <div class="view" id="stageBox"><canvas id="stage"></canvas></div>
+    <div class="panel">
+      <div class="chips" id="chips"></div>
+      <div class="tools">
+        <button id="btnAdd">ぬりえを追加</button>
+        <button id="btnSpark" class="on">キラキラ</button>
+        <button id="btnSound">音</button>
+        <button id="btnGift">お祝い</button>
+        <button id="btnDel">消す</button>
+      </div>
+      <div class="row">
+        <button class="shot" id="btnSnap">記念写真</button>
+        <button id="btnNext">次の方へ</button>
+      </div>
+      <div class="stat" id="stat">ぬりえをドラッグで移動、2本指で拡大・回転</div>
+    </div>
+  </section>
+
+  <section id="s4" hidden>
+    <div class="view" style="background:#fff"><canvas id="lineView"></canvas></div>
+    <div class="panel">
+      <label class="sl">細かさ<input type="range" id="lDetail" min="0" max="100" value="55"></label>
+      <label class="sl">線の太さ<input type="range" id="lThick" min="1" max="5" value="2"></label>
+      <label class="sl">線を減らす<input type="range" id="lSmooth" min="0" max="3" value="1"></label>
+      <div class="stat">仕上がりを選択</div>
+      <div class="row" id="faceStyles">
+        <button type="button" data-style="real" class="on">本人そっくり</button>
+        <button type="button" data-style="cute">やさしい似顔絵</button>
+      </div>
+      <div class="stat" id="cutStatus">人物を認識して背景を透明にしています</div>
+      <input type="text" id="lineTitle" maxlength="16" placeholder="タイトル（例：わたしのぬりえ）">
+      <div class="row"><button id="btnLRetake">撮り直す</button><button id="btnLPaint">画面で塗る</button></div>
+      <button class="main" id="btnLDone">できた！（印刷する）</button>
+      <div class="stat">ご自身で撮った写真や絵に限ります。印刷して塗ったら、「ぬりえを撮る」で撮影しよう</div>
+    </div>
+  </section>
+
+  <section id="s5" hidden>
+    <div class="view" style="display:block;overflow:auto;padding:12px;background:var(--panel);place-items:start"><div class="gal" id="gal"></div></div>
+    <div class="panel"><div class="stat">塗りたい絵をえらんでね。画面で塗って、そのまま動かせるよ</div></div>
+  </section>
+
+  <section id="s6" hidden>
+    <div class="view" id="paintView" style="background:#fff"><div id="paintInner"><canvas id="pCol"></canvas><canvas id="pLine"></canvas></div></div>
+    <div class="panel">
+      <div class="sw" id="sw"></div>
+      <div class="tools"><button id="tFill" class="on">ぬりタップ</button><button id="tCray">クレヨン</button><button id="tErase">けしごむ</button><button id="tClip" class="on">はみ出さない</button></div>
+      <label class="sl" id="sizeRow" hidden>太さ<input type="range" id="pSize" min="6" max="30" value="14"></label>
+      <div class="tools"><button id="pUndo">もどす</button><button id="pClear">全部消す</button><button id="pZoom">ぜんたい</button><button id="pBack">えらびなおす</button></div>
+      <button class="main" id="pGo">できた！　動かす</button>
+    </div>
+  </section>
+</div>
+<div class="modal" id="lineModal" hidden>
+  <div class="card">
+    <img id="lineImg" alt="塗り絵">
+    <p>画像を長押しして保存できます</p>
+    <div class="row"><button id="btnLPrint" class="main">印刷する</button><button id="btnLSave">画像を保存</button></div>
+    <div class="row"><button id="btnLGo">ぬりえを撮る画面へ</button><button id="btnLClose">閉じる</button></div>
+  </div>
+</div>
+<div id="printArea"><img id="printImg" alt=""></div>
+<div class="modal" id="giftModal" hidden>
+  <div class="card">
+    <p style="font-size:17px">お祝いをかざろう</p>
+    <label class="sl" style="display:block">メッセージ（20文字まで）<input type="text" id="gMsg" maxlength="20" placeholder="例：おじいちゃん 80さい おめでとう" style="width:100%;margin-top:6px"></label>
+    <button id="gRibbon" class="main">リボンにして出す</button>
+    <label class="sl" style="display:block">年れい・かず<input type="number" id="gAge" min="0" max="120" value="5" inputmode="numeric" style="width:100%;margin-top:6px"></label>
+    <button id="gNum">かずの風船を出す</button>
+    <div class="row"><button id="gBalloon">ふうせん</button><button id="gCake">ケーキ</button><button id="gBouquet">はなたば</button></div>
+    <button id="gClose">とじる</button>
+  </div>
+</div>
+<div class="modal" id="snapModal" hidden>
+  <div class="card">
+    <img id="snapImg" alt="記念写真">
+    <p>画像を長押しして保存できます</p>
+    <div class="row"><button id="btnSave" class="main">保存する</button><button id="btnClose">閉じる</button></div>
+  </div>
+</div>
+<script>
+(()=>{
+"use strict";
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const stepsEl=[...$("steps").children];
+let raw=null, sticker=null, squareMode=false, stream=null;
+
+let mode="shoot";
+function show(n){
+  ["s1","s2","s3","s4","s5","s6"].forEach((id,i)=>{$(id).hidden=(i!==n)});
+  const lab={shoot:["1 撮る","2 切り抜く","3 動かす"],make:["1 撮る","2 線にする","3 印刷"],paint:["1 えらぶ","2 ぬる","3 動かす"]}[mode];
+  const idx=n===3?1:n===4?0:n===5?1:n;
+  stepsEl.forEach((li,i)=>{li.textContent=lab[i];li.className=i===idx?"on":(i<idx?"done":"")});
+  $("cam").classList.toggle("off",n!==0);
+  if(n===0)startCam();
+  if(n===2)Stage.start(); else Stage.stop();
+  if(n===5)requestAnimationFrame(resetZoom);
+}
+function home(){show(mode==="paint"?4:0)}
+
+/* ---------- カメラ ---------- */
+async function startCam(){
+  if(stream&&stream.active){$("cam").play&&$("cam").play().catch(()=>{});return}
+  try{
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw 0;
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:960}},audio:false});
+    const v=$("cam");v.srcObject=stream;await v.play().catch(()=>{});
+    $("nocam").hidden=true;$("guide").hidden=false;$("hint").hidden=false;
+  }catch(e){
+    stream=null;$("cam").hidden=true;$("guide").hidden=true;$("hint").hidden=true;$("nocam").hidden=false;
+  }
+}
+const camReady=()=>stream&&stream.active&&$("cam").videoWidth>0;
+
+function toRaw(src,w,h){
+  const k=Math.min(1,(mode==="make"?1000:640)/Math.max(w,h));
+  const c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);
+  c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c;
+}
+function gotRaw(c){if(mode==="make"){gotMake(c);return}raw=c;squareMode=false;show(1);runCut()}
+
+$("btnShot").onclick=()=>{
+  if(!camReady()){$("fileCam").click();return}
+  const v=$("cam");gotRaw(toRaw(v,v.videoWidth,v.videoHeight));
+};
+$("file").onchange=$("fileCam").onchange=async e=>{
+  const f=e.target.files&&e.target.files[0];e.target.value="";if(!f)return;
+  try{
+    let bmp;
+    try{bmp=await createImageBitmap(f,{imageOrientation:"from-image"})}
+    catch(_){bmp=await new Promise((ok,ng)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=ng;im.src=URL.createObjectURL(f)})}
+    gotRaw(toRaw(bmp,bmp.width||bmp.naturalWidth,bmp.height||bmp.naturalHeight));
+  }catch(_){$("hint").textContent="この写真は読み込めませんでした";$("hint").hidden=false}
+};
+$("btnRetake").onclick=()=>show(0);
+
+/* ---------- 見本のぬりえ(さくらんぼ) ---------- */
+function demoPhoto(){
+  const c=document.createElement("canvas");c.width=600;c.height=480;const g=c.getContext("2d");
+  g.fillStyle="#8a6a4b";g.fillRect(0,0,600,480);
+  for(let i=0;i<40;i++){g.fillStyle="rgba(60,35,15,"+(.05+Math.random()*.08)+")";g.fillRect(0,i*12,600,2)}
+  g.save();g.translate(300,240);g.rotate(-.04);
+  g.fillStyle="#f7f6f2";g.shadowColor="rgba(0,0,0,.4)";g.shadowBlur=18;g.fillRect(-250,-205,500,410);g.shadowBlur=0;
+  g.lineCap="round";g.lineJoin="round";
+  // 色ぬり
+  g.fillStyle="#e8374f";g.beginPath();g.arc(-70,70,62,0,7);g.fill();
+  for(let i=0;i<14;i++){g.strokeStyle="rgba(255,120,130,.5)";g.lineWidth=6;g.beginPath();g.moveTo(-110,40+i*5);g.lineTo(-30,30+i*5);g.stroke()}
+  g.fillStyle="#3cb44b";g.beginPath();g.moveTo(10,-100);g.quadraticCurveTo(110,-170,170,-60);g.quadraticCurveTo(90,-20,10,-100);g.fill();
+  g.fillStyle="#ffd54a";g.beginPath();g.arc(90,85,12,0,7);g.fill();
+  // 線画
+  g.strokeStyle="#1a1a1a";g.lineWidth=7;
+  g.beginPath();g.arc(-70,70,62,0,7);g.stroke();
+  g.beginPath();g.arc(90,85,62,0,7);g.stroke();
+  g.beginPath();g.moveTo(-70,8);g.quadraticCurveTo(-60,-70,10,-100);g.stroke();
+  g.beginPath();g.moveTo(90,23);g.quadraticCurveTo(70,-50,10,-100);g.stroke();
+  g.beginPath();g.moveTo(10,-100);g.quadraticCurveTo(110,-170,170,-60);g.quadraticCurveTo(90,-20,10,-100);g.stroke();
+  g.lineWidth=4;g.beginPath();g.moveTo(20,-98);g.quadraticCurveTo(90,-100,140,-70);g.stroke();
+  g.beginPath();g.arc(-95,50,10,3.4,5);g.stroke();g.beginPath();g.arc(65,65,10,3.4,5);g.stroke();
+  g.restore();return c;
+}
+$("btnDemo").onclick=()=>gotRaw(mode==="make"?demoObjects():demoPhoto());
+
+/* ---------- 切り抜き ---------- */
+function cutout(src,sens,square){
+  const w=src.width,h=src.height,N=w*h;
+  const d=src.getContext("2d").getImageData(0,0,w,h).data;
+  // 紙の色を場所ごとに推定(明るい方から85%点)
+  const cell=20,gw=Math.ceil(w/cell),gh=Math.ceil(h/cell);
+  const hg=new Uint32Array(256);
+  for(let i=0;i<N;i++)hg[(d[i*4]*54+d[i*4+1]*183+d[i*4+2]*19)>>8]++;
+  let ca=0,G90=255;for(let v=255;v>=0;v--){ca+=hg[v];if(ca>=N*.1){G90=v;break}}
+  let sr=0,sg=0,sb=0,sm0=0;
+  for(let i=0;i<N;i++){const r=d[i*4],g=d[i*4+1],b=d[i*4+2],lu=(r*54+g*183+b*19)>>8,mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+    if(lu>=G90&&(mx-mn)/(mx+1)<.22){sr+=r;sg+=g;sb+=b;sm0++}}
+  const PG=sm0?[sr/sm0,sg/sm0,sb/sm0]:[240,240,240],Lmin=Math.round(G90*.55);
+  const pr=new Float32Array(gw*gh*3);
+  for(let cy=0;cy<gh;cy++)for(let cx=0;cx<gw;cx++){
+    const hist=new Uint16Array(256);let n=0;
+    const x1=Math.min(w,(cx+1)*cell),y1=Math.min(h,(cy+1)*cell);
+    for(let y=cy*cell;y<y1;y++)for(let x=cx*cell;x<x1;x++){const i=(y*w+x)*4;hist[(d[i]*54+d[i+1]*183+d[i+2]*19)>>8]++;n++}
+    let acc=0,L=255;for(let v=255;v>=0;v--){acc+=hist[v];if(acc>=n*.15){L=v;break}}
+    let r=0,g=0,b=0,m=0;
+    const Lc=Math.max(L,Lmin);
+    for(let y=cy*cell;y<y1;y++)for(let x=cx*cell;x<x1;x++){const i=(y*w+x)*4,rr=d[i],gg=d[i+1],bb=d[i+2];if(((rr*54+gg*183+bb*19)>>8)>=Lc&&(Math.max(rr,gg,bb)-Math.min(rr,gg,bb))/(Math.max(rr,gg,bb)+1)<.22){r+=rr;g+=gg;b+=bb;m++}}
+    const o=(cy*gw+cx)*3;if(m<4){pr[o]=PG[0];pr[o+1]=PG[1];pr[o+2]=PG[2]}else{pr[o]=r/m;pr[o+1]=g/m;pr[o+2]=b/m}
+  }
+  const sm=new Float32Array(pr.length);
+  for(let cy=0;cy<gh;cy++)for(let cx=0;cx<gw;cx++)for(let k=0;k<3;k++){
+    let s=0,m=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const X=cx+dx,Y=cy+dy;if(X<0||Y<0||X>=gw||Y>=gh)continue;s+=pr[(Y*gw+X)*3+k];m++}
+    sm[(cy*gw+cx)*3+k]=s/m;
+  }
+  const ls=[];for(let i=0;i<gw*gh;i++)ls.push(sm[i*3]*.3+sm[i*3+1]*.59+sm[i*3+2]*.11);
+  ls.sort((a,b)=>a-b);const GL=ls[Math.floor(ls.length*.9)]||200;
+  const out=new Uint8ClampedArray(N*4),score=new Float32Array(N),plike=new Uint8Array(N);
+  for(let y=0;y<h;y++){
+    const fy=clamp(y/cell-.5,0,gh-1),y0=Math.floor(fy),y1=Math.min(gh-1,y0+1),ty=fy-y0;
+    for(let x=0;x<w;x++){
+      const fx=clamp(x/cell-.5,0,gw-1),x0=Math.floor(fx),x1=Math.min(gw-1,x0+1),tx=fx-x0;
+      const P=[0,0,0];
+      for(let k=0;k<3;k++){
+        const a=sm[(y0*gw+x0)*3+k],b=sm[(y0*gw+x1)*3+k],c=sm[(y1*gw+x0)*3+k],e=sm[(y1*gw+x1)*3+k];
+        P[k]=(a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+e*tx)*ty;
+      }
+      const i=(y*w+x)*4,r=d[i],g=d[i+1],b=d[i+2];
+      const lum=r*.3+g*.59+b*.11,pl=P[0]*.3+P[1]*.59+P[2]*.11+1;
+      const mx=Math.max(r,g,b),mn=Math.min(r,g,b),pmx=Math.max(P[0],P[1],P[2]),pmn=Math.min(P[0],P[1],P[2]);
+      const dark=1-lum/pl,sat=Math.max(0,(mx-mn)/(mx+1)-(pmx-pmn)/(pmx+1));
+      score[y*w+x]=Math.max(dark,sat*1.3);
+      if(lum>GL*.72&&(mx-mn)/(mx+1)<.28)plike[y*w+x]=1;
+      out[i]=Math.min(255,r*255/(P[0]+1));out[i+1]=Math.min(255,g*255/(P[1]+1));out[i+2]=Math.min(255,b*255/(P[2]+1));out[i+3]=255;
+    }
+  }
+  let bx0=0,by0=0,bx1=w,by1=h;
+  // 紙の範囲(机などを除く): 紙色のいちばん大きなかたまりを埋めて求める
+  let hull=new Uint8Array(N).fill(1);
+  {
+    const pl2=morph(plike,w,h,2,true),L=components(pl2,w,h);let bi=0,bs=0;
+    L.sizes.forEach((v,i)=>{if(i&&v>bs){bs=v;bi=i}});
+    if(bs>N*.15){
+      const comp=new Uint8Array(N);for(let i=0;i<N;i++)comp[i]=L.lab[i]===bi?1:0;
+      const inv=new Uint8Array(N),qq=new Int32Array(N);let a=0,b=0;
+      const pu=i=>{if(!comp[i]&&!inv[i]){inv[i]=1;qq[b++]=i}};
+      for(let x=0;x<w;x++){pu(x);pu((h-1)*w+x)}for(let y=0;y<h;y++){pu(y*w);pu(y*w+w-1)}
+      while(a<b){const i=qq[a++],x=i%w;if(x>0)pu(i-1);if(x<w-1)pu(i+1);if(i>=w)pu(i-w);if(i<N-w)pu(i+w)}
+      for(let i=0;i<N;i++)hull[i]=inv[i]?0:1;
+    }
+  }
+  if(!square){
+    const thr=sens/100,mg=Math.round(Math.min(w,h)*.02);
+    let mask=new Uint8Array(N);
+    for(let y=mg;y<h-mg;y++)for(let x=mg;x<w-mg;x++)if(score[y*w+x]>thr&&hull[y*w+x])mask[y*w+x]=1;
+    mask=morph(mask,w,h,2,true);                 // 線のすき間をふさぐ
+    const hullIn=morph(hull,w,h,7,false,0);
+    const outside=new Uint8Array(N),q=new Int32Array(N);let qh=0,qt=0;
+    const push=i=>{if(!mask[i]&&!outside[i]){outside[i]=1;q[qt++]=i}};
+    for(let i=0;i<N;i++){if(!hull[i]){outside[i]=1;q[qt++]=i}else if(!hullIn[i])push(i)}
+    while(qh<qt){const i=q[qh++],x=i%w;if(x>0)push(i-1);if(x<w-1)push(i+1);if(i>=w)push(i-w);if(i<N-w)push(i+w)}
+    let solid=new Uint8Array(N);for(let i=0;i<N;i++)solid[i]=outside[i]?0:1;
+    solid=morph(solid,w,h,1,false);
+    const C=components(solid,w,h),lab=C.lab,sizes=C.sizes;
+    const big=Math.max(0,...sizes);
+    if(big<N*.004)return null;
+    const bb=sizes.map(()=>[w,h,0,0]);
+    for(let i=0;i<N;i++){const l=lab[i];if(!l)continue;const x=i%w,y=(i/w)|0,b=bb[l];if(x<b[0])b[0]=x;if(y<b[1])b[1]=y;if(x>b[2])b[2]=x;if(y>b[3])b[3]=y}
+    const keep=sizes.map((s,l)=>l>0&&s>=big*.05&&s>=.05*(bb[l][2]-bb[l][0]+1)*(bb[l][3]-bb[l][1]+1));
+    bx0=w;by0=h;bx1=0;by1=0;
+    for(let i=0;i<N;i++){
+      const a=(solid[i]&&keep[lab[i]])?255:0;out[i*4+3]=a;
+      if(a){const x=i%w,y=(i/w)|0;if(x<bx0)bx0=x;if(x>bx1)bx1=x;if(y<by0)by0=y;if(y>by1)by1=y}
+    }
+    bx1++;by1++;
+    const a2=new Uint8ClampedArray(N);
+    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let s=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)s+=out[((y+dy)*w+x+dx)*4+3];a2[y*w+x]=s/9}
+    for(let i=0;i<N;i++)out[i*4+3]=a2[i];
+  }else{
+    let x0=w,y0=h,x1=0,y1=0;
+    for(let i=0;i<N;i++)if(hull[i]){const x=i%w,y=(i/w)|0;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+    const m=Math.round(Math.min(w,h)*.02);
+    if(x1>x0&&(x1-x0)*(y1-y0)>N*.15){bx0=x0+m;by0=y0+m;bx1=x1-m;by1=y1-m}
+    else{const mm=Math.round(Math.min(w,h)*.04);bx0=mm;by0=mm;bx1=w-mm;by1=h-mm}
+  }
+  const full=document.createElement("canvas");full.width=w;full.height=h;
+  full.getContext("2d").putImageData(new ImageData(out,w,h),0,0);
+  const pad=4,cw=bx1-bx0,ch=by1-by0,k=Math.min(1,480/Math.max(cw,ch));
+  const o=document.createElement("canvas");o.width=Math.round(cw*k)+pad*2;o.height=Math.round(ch*k)+pad*2;
+  o.getContext("2d").drawImage(full,bx0,by0,cw,ch,pad,pad,Math.round(cw*k),Math.round(ch*k));
+  return o;
+}
+function components(bin,w,h){
+  const N=w*h,lab=new Int32Array(N),sizes=[0],q=new Int32Array(N);let nl=0;
+  for(let s=0;s<N;s++){if(!bin[s]||lab[s])continue;nl++;let c=0,qh=0,qt=0;q[qt++]=s;lab[s]=nl;
+    while(qh<qt){const i=q[qh++];c++;const x=i%w;
+      if(x>0&&bin[i-1]&&!lab[i-1]){lab[i-1]=nl;q[qt++]=i-1}
+      if(x<w-1&&bin[i+1]&&!lab[i+1]){lab[i+1]=nl;q[qt++]=i+1}
+      if(i>=w&&bin[i-w]&&!lab[i-w]){lab[i-w]=nl;q[qt++]=i-w}
+      if(i<N-w&&bin[i+w]&&!lab[i+w]){lab[i+w]=nl;q[qt++]=i+w}}
+    sizes.push(c)}
+  return{lab,sizes};
+}
+// 太らせる/やせさせる(正方形ぼかし・縦横に分けて計算)
+function morph(m,w,h,r,grow,oob){
+  const ob=oob===undefined?(grow?0:1):oob;
+  const t=new Uint8Array(m.length),o=new Uint8Array(m.length);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let v=grow?0:1;
+    for(let k=-r;k<=r;k++){const X=x+k;const s=(X<0||X>=w)?ob:m[y*w+X];if(grow){if(s){v=1;break}}else if(!s){v=0;break}}t[y*w+x]=v}
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let v=grow?0:1;
+    for(let k=-r;k<=r;k++){const Y=y+k;const s=(Y<0||Y>=h)?ob:t[Y*w+x];if(grow){if(s){v=1;break}}else if(!s){v=0;break}}o[y*w+x]=v}
+  return o;
+}
+let cutTimer=0;
+function runCut(){
+  if(!raw)return;
+  const c=cutout(raw,+$("sens").value,squareMode);
+  if(!c){squareMode=true;sticker=cutout(raw,0,true);$("btnSquare").textContent="切り抜きに戻す";}
+  else{sticker=c;$("btnSquare").textContent=squareMode?"切り抜きに戻す":"四角のまま使う"}
+  const t=$("trim");t.width=sticker.width;t.height=sticker.height;
+  const g=t.getContext("2d");g.clearRect(0,0,t.width,t.height);g.drawImage(sticker,0,0);
+}
+$("sens").oninput=()=>{clearTimeout(cutTimer);cutTimer=setTimeout(()=>{squareMode=false;runCut()},90)};
+$("btnSquare").onclick=()=>{squareMode=!squareMode;runCut()};
+$("btnOk").onclick=()=>{if(!sticker)return;Stage.add(sticker);show(2)};
+
+
+/* ================= 写真から塗り絵をつくる ================= */
+const PAGE_URL=/^https?:/.test(location.href)&&!/claude\.ai|usercontent/.test(location.host)?location.origin+location.pathname:"https://marunonbe.github.io/nurie-ar/";
+let makeSrc=null,lineCv=null,a4Blob=null,faceStyle="real",personMask=null,segmenter=null;
+function setMode(m){
+  mode=m;["Shoot","Make","Paint"].forEach(k=>$("tab"+k).classList.toggle("on",m===k.toLowerCase()));
+  if(m!=="paint"){
+    $("hint").textContent=m==="make"?"塗り絵にしたいものを、枠いっぱいに写してね":"ぬりえを枠いっぱいに写してね";
+    $("btnDemo").textContent=m==="make"?"見本の写真で試す":"見本のぬりえで試す";
+  }
+  m==="paint"?show(4):show(0);
+}
+$("tabShoot").onclick=()=>setMode("shoot");$("tabMake").onclick=()=>setMode("make");$("tabPaint").onclick=()=>setMode("paint");
+async function loadPersonSegmenter(){
+  if(segmenter)return segmenter;
+  if(!window.SelfieSegmentation){
+    await new Promise((resolve,reject)=>{const sc=document.createElement("script");sc.src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js";sc.onload=resolve;sc.onerror=reject;document.head.appendChild(sc)});
+  }
+  segmenter=new SelfieSegmentation({locateFile:f=>"https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/"+f});
+  segmenter.setOptions({modelSelection:1});
+  return segmenter;
+}
+function segmentPeople(src){
+  return new Promise(async(resolve,reject)=>{
+    try{
+      const seg=await loadPersonSegmenter();
+      seg.onResults(res=>{
+        try{
+          const w=src.width,h=src.height,mc=document.createElement("canvas");mc.width=w;mc.height=h;
+          const mg=mc.getContext("2d");mg.drawImage(res.segmentationMask,0,0,w,h);
+          const md=mg.getImageData(0,0,w,h).data,mask=new Uint8ClampedArray(w*h),alpha=new Uint8ClampedArray(w*h);
+          let x0=w,y0=h,x1=0,y1=0,count=0;
+          for(let i=0;i<w*h;i++){
+            const a=md[i*4];alpha[i]=a;
+            if(a>90){mask[i]=1;count++;const x=i%w,y=(i/w)|0;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+          }
+          if(count<w*h*.025){reject(new Error("人物を認識できませんでした"));return}
+          const pad=Math.round(Math.min(w,h)*.025);x0=Math.max(0,x0-pad);y0=Math.max(0,y0-pad);x1=Math.min(w-1,x1+pad);y1=Math.min(h-1,y1+pad);
+          const cw=x1-x0+1,ch=y1-y0+1,srcD=src.getContext("2d").getImageData(0,0,w,h).data;
+          const out=document.createElement("canvas");out.width=cw;out.height=ch;const og=out.getContext("2d"),od=og.createImageData(cw,ch);
+          const ma=document.createElement("canvas");ma.width=cw;ma.height=ch;const mag=ma.getContext("2d"),mi=mag.createImageData(cw,ch);
+          for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
+            const si=((y+y0)*w+x+x0),di=y*cw+x,sp=si*4,dp=di*4,a=alpha[si];
+            od.data[dp]=srcD[sp];od.data[dp+1]=srcD[sp+1];od.data[dp+2]=srcD[sp+2];od.data[dp+3]=a;
+            mi.data[dp]=mi.data[dp+1]=mi.data[dp+2]=255;mi.data[dp+3]=a;
+          }
+          og.putImageData(od,0,0);mag.putImageData(mi,0,0);personMask=ma;resolve(out);
+        }catch(e){reject(e)}
+      });
+      await seg.send({image:src});
+    }catch(e){reject(e)}
+  });
+}
+async function gotMake(c){
+  makeSrc=c;lineCv=null;$("cutStatus").textContent="人物を認識しています…";$("btnLDone").disabled=true;show(3);
+  try{
+    makeSrc=await segmentPeople(c);
+    $("cutStatus").textContent="人物を切り抜きました。背景は透明になります";
+  }catch(e){
+    personMask=null;$("cutStatus").textContent="人物の自動切り抜きに失敗しました。明るい場所で人物全体が写る写真を選んでください。";
+    $("btnLDone").disabled=true;return;
+  }
+  $("btnLDone").disabled=false;runLine();
+}
+$("faceStyles").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+  faceStyle=b.dataset.style;$("faceStyles").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));runLine();
+});
+$("btnLRetake").onclick=()=>show(0);
+$("btnLPaint").onclick=()=>{if(!lineCv)return;mode="paint";["Shoot","Make","Paint"].forEach(k=>$("tab"+k).classList.toggle("on",k==="Paint"));openPaintCanvas(lineCv)};
+
+function blurP(p,w,h,r){
+  const t=new Float32Array(p.length),o=new Float32Array(p.length),n=2*r+1;
+  for(let y=0;y<h;y++){let s=0;const b=y*w;for(let k=-r;k<=r;k++)s+=p[b+Math.min(w-1,Math.max(0,k))];
+    for(let x=0;x<w;x++){t[b+x]=s/n;s+=p[b+Math.min(w-1,x+r+1)]-p[b+Math.max(0,x-r)]}}
+  for(let x=0;x<w;x++){let s=0;for(let k=-r;k<=r;k++)s+=t[Math.min(h-1,Math.max(0,k))*w+x];
+    for(let y=0;y<h;y++){o[y*w+x]=s/n;s+=t[Math.min(h-1,y+r+1)*w+x]-t[Math.max(0,y-r)*w+x]}}
+  return o;
+}
+function lineArt(src,detail,thick,smooth){
+  const w=src.width,h=src.height,N=w*h,d=src.getContext("2d").getImageData(0,0,w,h).data,r=faceStyle==="real"?1+smooth*2:2+smooth*2;
+  const ch=[0,1,2].map(k=>{const p=new Float32Array(N);for(let i=0;i<N;i++)p[i]=d[i*4+k];return blurP(blurP(p,w,h,r),w,h,r)});
+  // 本人そっくりは細部を多く、似顔絵風は陰影や細かなシワを抑える
+  const T=faceStyle==="real"?(218-(218-42)*detail/100):(246-(246-82)*detail/100);
+  let mask=new Uint8Array(N),inside=new Uint8Array(N);
+  for(let i=0;i<N;i++)inside[i]=d[i*4+3]>70?1:0;
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
+    const i=y*w+x;if(!inside[i])continue;let m=0;
+    for(let k=0;k<3;k++){const p=ch[k];
+      const gx=-p[i-w-1]-2*p[i-1]-p[i+w-1]+p[i-w+1]+2*p[i+1]+p[i+w+1];
+      const gy=-p[i-w-1]-2*p[i-w]-p[i-w+1]+p[i+w-1]+2*p[i+w]+p[i+w+1];
+      const v=Math.abs(gx)+Math.abs(gy);if(v>m)m=v}
+    m*=255/((ch[0][i]+ch[1][i]+ch[2][i])/3+100);
+    if(m>T)mask[i]=1;
+  }
+  if(thick>1)mask=morph(mask,w,h,thick-1,true);
+  const out=new Uint8ClampedArray(N*4);
+  for(let i=0;i<N;i++){
+    const on=mask[i],v=on?12:255,o=i*4;
+    out[o]=out[o+1]=out[o+2]=v;out[o+3]=inside[i]?d[o+3]:0;
+  }
+  const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").putImageData(new ImageData(out,w,h),0,0);return c;
+}
+let lineTimer=0;
+function runLine(){
+  if(!makeSrc)return;
+  lineCv=lineArt(makeSrc,+$("lDetail").value,+$("lThick").value,+$("lSmooth").value);
+  const v=$("lineView");v.width=lineCv.width;v.height=lineCv.height;const g=v.getContext("2d");g.clearRect(0,0,v.width,v.height);g.drawImage(lineCv,0,0);
+}
+["lDetail","lThick","lSmooth"].forEach(id=>{$(id).oninput=()=>{clearTimeout(lineTimer);lineTimer=setTimeout(runLine,120)}});
+
+function composeA4(){
+  const W=1240,H=1754,c=document.createElement("canvas");c.width=W;c.height=H;const g=c.getContext("2d");
+  g.fillStyle="#fff";g.fillRect(0,0,W,H);g.fillStyle="#111";g.textAlign="center";g.textBaseline="middle";
+  const ff='"Zen Maru Gothic","Noto Sans CJK JP","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif';
+  const title=($("lineTitle").value||"わたしのぬりえ").trim();
+  g.font="900 84px "+ff;g.fillText(title,W/2,150);
+  const bw=W-220,bh=1300,k=Math.min(bw/lineCv.width,bh/lineCv.height),dw=lineCv.width*k,dh=lineCv.height*k;
+  g.imageSmoothingQuality="high";g.drawImage(lineCv,(W-dw)/2,250+(bh-dh)/2,dw,dh);
+  g.font="700 38px "+ff;g.fillText("ぬりえをスマホで撮ると、動きだす！",W/2,1642);
+  g.font="700 28px "+ff;g.fillText("ぬりえAR　"+PAGE_URL,W/2,1698);
+  return c;
+}
+$("btnLDone").onclick=()=>{
+  if(!lineCv)return;const c=composeA4();
+  c.toBlob(b=>{a4Blob=b;$("lineImg").src=c.toDataURL("image/png");$("printImg").src=$("lineImg").src;$("lineModal").hidden=false},"image/png");
+};
+$("btnLClose").onclick=()=>{$("lineModal").hidden=true};
+$("btnLGo").onclick=()=>{$("lineModal").hidden=true;setMode("shoot")};
+$("btnLPrint").onclick=()=>{try{window.print()}catch(_){}};
+$("btnLSave").onclick=async()=>{
+  if(!a4Blob)return;const name="nurie-塗り絵.png";
+  try{const dl=window.claude&&window.claude.use?await window.claude.use("downloads"):null;if(dl){await dl.save({filename:name,data:a4Blob});return}}catch(_){return}
+  const a=document.createElement("a");a.href=URL.createObjectURL(a4Blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+};
+
+/* 見本の写真(りんごとコップ) */
+function demoObjects(){
+  const c=document.createElement("canvas");c.width=800;c.height=600;const g=c.getContext("2d");
+  let bg=g.createLinearGradient(0,0,0,600);bg.addColorStop(0,"#e8e3d8");bg.addColorStop(.62,"#d9d2c3");bg.addColorStop(.62,"#a67c52");bg.addColorStop(1,"#8c6540");g.fillStyle=bg;g.fillRect(0,0,800,600);
+  g.fillStyle="rgba(0,0,0,.25)";g.beginPath();g.ellipse(300,470,170,26,0,0,7);g.fill();g.beginPath();g.ellipse(600,455,95,18,0,0,7);g.fill();
+  let rg=g.createRadialGradient(260,300,20,300,360,170);rg.addColorStop(0,"#ff8a7a");rg.addColorStop(.5,"#d92b2b");rg.addColorStop(1,"#8f1414");
+  g.fillStyle=rg;g.beginPath();g.moveTo(300,235);g.bezierCurveTo(380,190,470,260,450,360);g.bezierCurveTo(430,470,350,500,300,480);g.bezierCurveTo(250,500,170,470,150,360);g.bezierCurveTo(130,260,220,190,300,235);g.fill();
+  g.strokeStyle="#4a2b12";g.lineWidth=10;g.lineCap="round";g.beginPath();g.moveTo(300,236);g.quadraticCurveTo(300,200,320,170);g.stroke();
+  g.fillStyle="#3d9a3d";g.beginPath();g.moveTo(322,190);g.quadraticCurveTo(380,140,430,170);g.quadraticCurveTo(390,220,322,190);g.fill();
+  g.strokeStyle="rgba(20,70,20,.8)";g.lineWidth=3;g.beginPath();g.moveTo(326,190);g.quadraticCurveTo(380,175,422,170);g.stroke();
+  g.fillStyle="rgba(255,255,255,.45)";g.beginPath();g.ellipse(230,320,22,50,-.4,0,7);g.fill();
+  let cg=g.createLinearGradient(520,0,690,0);cg.addColorStop(0,"#5aa0d8");cg.addColorStop(.5,"#8cc4ee");cg.addColorStop(1,"#3f7fb6");g.fillStyle=cg;
+  g.beginPath();g.moveTo(520,300);g.lineTo(680,300);g.lineTo(660,450);g.quadraticCurveTo(600,475,540,450);g.closePath();g.fill();
+  g.strokeStyle="#3f7fb6";g.lineWidth=14;g.beginPath();g.moveTo(678,330);g.bezierCurveTo(745,320,745,420,662,415);g.stroke();
+  g.fillStyle="#5b3a1d";g.beginPath();g.ellipse(600,302,80,10,0,0,7);g.fill();
+  return c;
+}
+
+
+/* ================= 画面で塗る ================= */
+const PW=720,PH=870,ANIMALS=[["ねこ", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><path d=\"M255,470 L262,325 L360,405 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M545,470 L538,325 L440,405 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M280,440 L284,365 L335,410 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M520,440 L516,365 L465,410 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M540,940 C680,940 720,800 640,720\" fill=\"none\" stroke=\"#111\" stroke-width=\"54\" stroke-linecap=\"round\"/><path d=\"M540,940 C680,940 720,800 640,720\" fill=\"none\" stroke=\"#fff\" stroke-width=\"44\" stroke-linecap=\"round\"/><ellipse cx=\"400\" cy=\"800\" rx=\"165\" ry=\"200\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><ellipse cx=\"400\" cy=\"850\" rx=\"95\" ry=\"125\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"340\" cy=\"900\" rx=\"40\" ry=\"95\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"340\" cy=\"985\" rx=\"50\" ry=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M330,975 l0,18 M350,975 l0,18\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"460\" cy=\"900\" rx=\"40\" ry=\"95\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"460\" cy=\"985\" rx=\"50\" ry=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M450,975 l0,18 M470,975 l0,18\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"400\" cy=\"545\" rx=\"185\" ry=\"145\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><circle cx=\"335\" cy=\"525\" r=\"20\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"341.0\" cy=\"518.0\" r=\"7.0\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"465\" cy=\"525\" r=\"20\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"471.0\" cy=\"518.0\" r=\"7.0\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><path d=\"M388,570 L412,570 L400,585 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M400,585 Q400,606 378,610 M400,585 Q400,606 422,610\" fill=\"none\" stroke=\"#111\" stroke-width=\"3.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M325,575 l-70,-28\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M325,585 l-70,-6\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M325,595 l-70,16\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M475,575 l70,-28\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M475,585 l70,-6\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M475,595 l70,16\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M376,420 l0,22\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M400,420 l0,30\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M424,420 l0,22\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M265,700 Q400,760 535,700\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><circle cx=\"400\" cy=\"742\" r=\"18\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M390,742 l20,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></g>\n</svg>"], ["いぬ", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><path d=\"M545,880 Q665,870 640,740\" fill=\"none\" stroke=\"#111\" stroke-width=\"48\" stroke-linecap=\"round\"/><path d=\"M545,880 Q665,870 640,740\" fill=\"none\" stroke=\"#fff\" stroke-width=\"38\" stroke-linecap=\"round\"/><path d=\"M690,760 l25,-14 M692,800 l30,-4\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"400\" cy=\"820\" rx=\"155\" ry=\"185\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><ellipse cx=\"400\" cy=\"870\" rx=\"88\" ry=\"110\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"345\" cy=\"910\" rx=\"40\" ry=\"85\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"345\" cy=\"988\" rx=\"50\" ry=\"25\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"455\" cy=\"910\" rx=\"40\" ry=\"85\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"455\" cy=\"988\" rx=\"50\" ry=\"25\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"255\" cy=\"540\" rx=\"58\" ry=\"115\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\" transform=\"rotate(18 255 540)\"/><ellipse cx=\"545\" cy=\"540\" rx=\"58\" ry=\"115\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\" transform=\"rotate(-18 545 540)\"/><ellipse cx=\"400\" cy=\"530\" rx=\"170\" ry=\"150\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><ellipse cx=\"333\" cy=\"500\" rx=\"52\" ry=\"46\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"345\" cy=\"505\" r=\"20\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"351.0\" cy=\"498.0\" r=\"7.0\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"455\" cy=\"505\" r=\"20\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"461.0\" cy=\"498.0\" r=\"7.0\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><path d=\"M300,455 q30,-22 62,-4 M498,455 q-30,-22 -62,-4\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"400\" cy=\"600\" rx=\"92\" ry=\"66\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"400\" cy=\"566\" rx=\"36\" ry=\"23\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M400,589 L400,622 M340,640 Q400,690 460,640\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"400\" cy=\"668\" rx=\"30\" ry=\"34\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M400,640 L400,692\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></g>\n</svg>"], ["うさぎ", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"330\" cy=\"330\" rx=\"44\" ry=\"155\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\" transform=\"rotate(-8 330 330)\"/><ellipse cx=\"470\" cy=\"330\" rx=\"44\" ry=\"155\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\" transform=\"rotate(8 470 330)\"/><ellipse cx=\"332\" cy=\"345\" rx=\"22\" ry=\"112\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(-8 332 345)\"/><ellipse cx=\"468\" cy=\"345\" rx=\"22\" ry=\"112\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(8 468 345)\"/><ellipse cx=\"400\" cy=\"835\" rx=\"158\" ry=\"170\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><circle cx=\"570\" cy=\"880\" r=\"38\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M560,870 q10,-14 20,0 M556,888 q16,10 28,-2\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"320\" cy=\"992\" rx=\"74\" ry=\"32\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"480\" cy=\"992\" rx=\"74\" ry=\"32\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"400\" cy=\"570\" rx=\"155\" ry=\"135\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><circle cx=\"345\" cy=\"555\" r=\"17\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"350.1\" cy=\"549.05\" r=\"5.949999999999999\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"455\" cy=\"555\" r=\"17\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"460.1\" cy=\"549.05\" r=\"5.949999999999999\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"318\" cy=\"600\" r=\"24\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/><circle cx=\"482\" cy=\"600\" r=\"24\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/><path d=\"M388,590 L412,590 L400,604 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M400,604 L400,618 M400,618 Q380,640 360,624 M400,618 Q420,640 440,624\" fill=\"none\" stroke=\"#111\" stroke-width=\"3.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M300,592 l-70,-28\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M300,602 l-70,-6\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M300,612 l-70,16\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M500,592 l70,-28\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M500,602 l70,-6\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M500,612 l70,16\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M372,780 L428,780 L400,940 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M392,780 q-16,-50 -34,-60 M400,780 l0,-62 M408,780 q16,-50 34,-60\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"352\" cy=\"830\" rx=\"32\" ry=\"24\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"448\" cy=\"830\" rx=\"32\" ry=\"24\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/></g>\n</svg>"], ["ぞう", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><rect x=\"258\" y=\"860\" width=\"84\" height=\"142\" rx=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linejoin=\"round\"/><path d=\"M278,988 q8,-14 16,0 M306,988 q8,-14 16,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><rect x=\"353\" y=\"860\" width=\"84\" height=\"142\" rx=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linejoin=\"round\"/><path d=\"M373,988 q8,-14 16,0 M401,988 q8,-14 16,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><rect x=\"518\" y=\"860\" width=\"84\" height=\"142\" rx=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linejoin=\"round\"/><path d=\"M538,988 q8,-14 16,0 M566,988 q8,-14 16,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><rect x=\"613\" y=\"860\" width=\"84\" height=\"142\" rx=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linejoin=\"round\"/><path d=\"M633,988 q8,-14 16,0 M661,988 q8,-14 16,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"480\" cy=\"740\" rx=\"235\" ry=\"170\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><path d=\"M705,690 Q745,760 722,850\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"722\" cy=\"868\" rx=\"16\" ry=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><circle cx=\"255\" cy=\"555\" r=\"125\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><path d=\"M200,640 C140,750 130,870 190,915 C225,935 258,905 236,878\" fill=\"none\" stroke=\"#111\" stroke-width=\"76\" stroke-linecap=\"round\"/><path d=\"M200,640 C140,750 130,870 190,915 C225,935 258,905 236,878\" fill=\"none\" stroke=\"#fff\" stroke-width=\"66\" stroke-linecap=\"round\"/><path d=\"M170,700 q-8,40 4,76 M205,690 q-6,50 6,90\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M285,650 Q325,725 280,780\" fill=\"none\" stroke=\"#111\" stroke-width=\"30\" stroke-linecap=\"round\"/><path d=\"M285,650 Q325,725 280,780\" fill=\"none\" stroke=\"#fff\" stroke-width=\"22\" stroke-linecap=\"round\"/><circle cx=\"330\" cy=\"540\" r=\"108\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><path d=\"M300,490 q30,50 5,100\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M350,480 q20,50 0,110\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><circle cx=\"222\" cy=\"520\" r=\"15\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"226.5\" cy=\"514.75\" r=\"5.25\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><path d=\"M190,494 q20,-14 42,-4\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"674.3\" cy=\"400.0\" rx=\"14.3\" ry=\"10.4\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"664.4189430195618\" cy=\"413.6001081830207\" rx=\"14.3\" ry=\"10.4\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 664.4189430195618 413.6001081830207)\"/><ellipse cx=\"648.4310569804383\" cy=\"408.4053291077824\" rx=\"14.3\" ry=\"10.4\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 648.4310569804383 408.4053291077824)\"/><ellipse cx=\"648.4310569804383\" cy=\"391.59467089221766\" rx=\"14.3\" ry=\"10.4\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 648.4310569804383 391.59467089221766)\"/><ellipse cx=\"664.4189430195618\" cy=\"386.3998918169793\" rx=\"14.3\" ry=\"10.4\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 664.4189430195618 386.3998918169793)\"/><circle cx=\"660\" cy=\"400\" r=\"5.72\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"132.1\" cy=\"420.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"123.73910563193687\" cy=\"431.50778384717137\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 123.73910563193687 431.50778384717137)\"/><ellipse cx=\"110.21089436806314\" cy=\"427.11220155273895\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 110.21089436806314 427.11220155273895)\"/><ellipse cx=\"110.21089436806314\" cy=\"412.88779844726105\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 110.21089436806314 412.88779844726105)\"/><ellipse cx=\"123.73910563193687\" cy=\"408.49221615282863\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 123.73910563193687 408.49221615282863)\"/><circle cx=\"120\" cy=\"420\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/></g>\n</svg>"], ["ライオン", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"400\" cy=\"880\" rx=\"150\" ry=\"135\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><path d=\"M550,920 C640,920 680,860 650,790\" fill=\"none\" stroke=\"#111\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"655\" cy=\"775\" rx=\"26\" ry=\"38\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" transform=\"rotate(15 655 775)\"/><path d=\"M655.0,560.0 L599.8602219972738,605.6167914610445 L629.7470613151169,670.6403534749774 L560.275453905946,687.8154093810404 L558.9898994739771,759.3670280293476 L488.9461665190994,744.698617919996 L456.7428381588602,808.606617606365 L400.0,765.0 L343.25716184113986,808.606617606365 L311.0538334809006,744.698617919996 L241.01010052602297,759.3670280293477 L239.72454609405395,687.8154093810405 L170.25293868488313,670.6403534749774 L200.13977800272613,605.6167914610444 L145.0,560.0 L200.13977800272613,514.3832085389556 L170.2529386848831,449.3596465250227 L239.72454609405395,432.18459061895953 L241.0101005260229,360.6329719706524 L311.05383348090055,375.3013820800041 L343.2571618411398,311.39338239363497 L399.99999999999994,355.0 L456.7428381588599,311.3933823936349 L488.9461665190994,375.30138208000403 L558.989899473977,360.63297197065236 L560.275453905946,432.1845906189596 L629.747061315117,449.35964652502287 L599.8602219972738,514.3832085389555 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><circle cx=\"400\" cy=\"560\" r=\"168\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"278\" cy=\"430\" r=\"40\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"522\" cy=\"430\" r=\"40\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"278\" cy=\"432\" r=\"20\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><circle cx=\"522\" cy=\"432\" r=\"20\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><circle cx=\"400\" cy=\"560\" r=\"148\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><circle cx=\"335\" cy=\"520\" r=\"18\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"340.4\" cy=\"513.7\" r=\"6.3\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"465\" cy=\"520\" r=\"18\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"470.4\" cy=\"513.7\" r=\"6.3\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><path d=\"M300,478 q30,-20 60,-2 M500,478 q-30,-20 -60,-2\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"368\" cy=\"625\" rx=\"52\" ry=\"38\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"432\" cy=\"625\" rx=\"52\" ry=\"38\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M380,580 L420,580 L400,606 Z\" fill=\"#111\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M400,606 L400,632 M400,632 Q372,660 345,634 M400,632 Q428,660 455,634\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><circle cx=\"320\" cy=\"622\" r=\"3\" fill=\"#111\" stroke=\"#111\" stroke-width=\"2\"/><circle cx=\"306\" cy=\"630\" r=\"3\" fill=\"#111\" stroke=\"#111\" stroke-width=\"2\"/><circle cx=\"292\" cy=\"638\" r=\"3\" fill=\"#111\" stroke=\"#111\" stroke-width=\"2\"/><circle cx=\"480\" cy=\"622\" r=\"3\" fill=\"#111\" stroke=\"#111\" stroke-width=\"2\"/><circle cx=\"494\" cy=\"630\" r=\"3\" fill=\"#111\" stroke=\"#111\" stroke-width=\"2\"/><circle cx=\"508\" cy=\"638\" r=\"3\" fill=\"#111\" stroke=\"#111\" stroke-width=\"2\"/><ellipse cx=\"335\" cy=\"990\" rx=\"52\" ry=\"28\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"465\" cy=\"990\" rx=\"52\" ry=\"28\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/></g>\n</svg>"], ["パンダ", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><rect x=\"600\" y=\"300\" width=\"38\" height=\"690\" rx=\"12\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linejoin=\"round\"/><path d=\"M600,400 l38,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M600,520 l38,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M600,640 l38,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M600,760 l38,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M600,880 l38,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M638,360 L730,330 L690,390 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M600,470 L520,440 L560,500 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M638,590 L740,570 L700,630 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"400\" cy=\"830\" rx=\"175\" ry=\"180\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><ellipse cx=\"400\" cy=\"870\" rx=\"105\" ry=\"120\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"280\" cy=\"880\" rx=\"48\" ry=\"78\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" transform=\"rotate(18 280 880)\"/><ellipse cx=\"520\" cy=\"880\" rx=\"48\" ry=\"78\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" transform=\"rotate(-18 520 880)\"/><ellipse cx=\"320\" cy=\"975\" rx=\"70\" ry=\"36\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"480\" cy=\"975\" rx=\"70\" ry=\"36\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"272\" cy=\"425\" r=\"52\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><circle cx=\"528\" cy=\"425\" r=\"52\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><circle cx=\"272\" cy=\"425\" r=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><circle cx=\"528\" cy=\"425\" r=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"400\" cy=\"550\" rx=\"172\" ry=\"142\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><ellipse cx=\"335\" cy=\"545\" rx=\"38\" ry=\"52\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" transform=\"rotate(22 335 545)\"/><ellipse cx=\"465\" cy=\"545\" rx=\"38\" ry=\"52\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" transform=\"rotate(-22 465 545)\"/><circle cx=\"338\" cy=\"545\" r=\"15\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"342.5\" cy=\"539.75\" r=\"5.25\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"462\" cy=\"545\" r=\"15\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"466.5\" cy=\"539.75\" r=\"5.25\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><ellipse cx=\"400\" cy=\"592\" rx=\"24\" ry=\"16\" fill=\"#111\" stroke=\"#111\" stroke-width=\"3\"/><path d=\"M400,608 L400,628 M400,628 Q372,652 350,632 M400,628 Q428,652 450,632\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><circle cx=\"310\" cy=\"600\" r=\"18\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/><circle cx=\"490\" cy=\"600\" r=\"18\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/></g>\n</svg>"], ["ひよこ", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><circle cx=\"400\" cy=\"640\" r=\"205\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><ellipse cx=\"205\" cy=\"700\" rx=\"48\" ry=\"92\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" transform=\"rotate(28 205 700)\"/><ellipse cx=\"595\" cy=\"700\" rx=\"48\" ry=\"92\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" transform=\"rotate(-28 595 700)\"/><path d=\"M360,445 q-26,-60 -62,-38 M400,440 q0,-78 -4,-86 M440,445 q26,-60 62,-38\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><circle cx=\"335\" cy=\"600\" r=\"20\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"341.0\" cy=\"593.0\" r=\"7.0\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"465\" cy=\"600\" r=\"20\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"471.0\" cy=\"593.0\" r=\"7.0\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"290\" cy=\"650\" r=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/><circle cx=\"510\" cy=\"650\" r=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/><path d=\"M372,640 L428,640 L400,684 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M376,656 L424,656\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M350,840 l0,70 l-26,22 M350,910 l0,22 M350,910 l28,22\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M450,840 l0,70 l-26,22 M450,910 l0,22 M450,910 l28,22\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M190,830 L238,890 L290,830 L342,890 L400,830 L458,890 L510,830 L562,890 L610,830 Q600,1000 400,1005 Q200,1000 190,830 Z\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"172.1\" cy=\"420.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"163.73910563193687\" cy=\"431.50778384717137\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 163.73910563193687 431.50778384717137)\"/><ellipse cx=\"150.21089436806312\" cy=\"427.11220155273895\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 150.21089436806312 427.11220155273895)\"/><ellipse cx=\"150.21089436806312\" cy=\"412.88779844726105\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 150.21089436806312 412.88779844726105)\"/><ellipse cx=\"163.73910563193687\" cy=\"408.49221615282863\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 163.73910563193687 408.49221615282863)\"/><circle cx=\"160\" cy=\"420\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"663.2\" cy=\"430.0\" rx=\"13.200000000000001\" ry=\"9.600000000000001\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"654.0790243257493\" cy=\"442.553946015096\" rx=\"13.200000000000001\" ry=\"9.600000000000001\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 654.0790243257493 442.553946015096)\"/><ellipse cx=\"639.3209756742507\" cy=\"437.75876533026064\" rx=\"13.200000000000001\" ry=\"9.600000000000001\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 639.3209756742507 437.75876533026064)\"/><ellipse cx=\"639.3209756742507\" cy=\"422.24123466973936\" rx=\"13.200000000000001\" ry=\"9.600000000000001\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 639.3209756742507 422.24123466973936)\"/><ellipse cx=\"654.0790243257493\" cy=\"417.446053984904\" rx=\"13.200000000000001\" ry=\"9.600000000000001\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 654.0790243257493 417.446053984904)\"/><circle cx=\"650\" cy=\"430\" r=\"5.28\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/></g>\n</svg>"], ["ペンギン", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"40 160 720 870\" width=\"720\" height=\"870\">\n<g><path d=\"M80,1005 Q400,985 720,1005\" fill=\"none\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"122.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"113.73910563193687\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 113.73910563193687 971.5077838471714)\"/><ellipse cx=\"100.21089436806314\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 100.21089436806314 967.112201552739)\"/><ellipse cx=\"100.21089436806314\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 100.21089436806314 952.887798447261)\"/><ellipse cx=\"113.73910563193687\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 113.73910563193687 948.4922161528286)\"/><circle cx=\"110\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"702.1\" cy=\"960.0\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"693.7391056319368\" cy=\"971.5077838471714\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(72.0 693.7391056319368 971.5077838471714)\"/><ellipse cx=\"680.2108943680631\" cy=\"967.112201552739\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(144.0 680.2108943680631 967.112201552739)\"/><ellipse cx=\"680.2108943680631\" cy=\"952.887798447261\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(216.0 680.2108943680631 952.887798447261)\"/><ellipse cx=\"693.7391056319368\" cy=\"948.4922161528286\" rx=\"12.100000000000001\" ry=\"8.8\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" transform=\"rotate(288.0 693.7391056319368 948.4922161528286)\"/><circle cx=\"690\" cy=\"960\" r=\"4.84\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\"/><ellipse cx=\"400\" cy=\"700\" rx=\"195\" ry=\"285\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\"/><ellipse cx=\"400\" cy=\"760\" rx=\"130\" ry=\"215\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"205\" cy=\"720\" rx=\"38\" ry=\"135\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\" transform=\"rotate(14 205 720)\"/><ellipse cx=\"595\" cy=\"720\" rx=\"38\" ry=\"135\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"5\" transform=\"rotate(-14 595 720)\"/><circle cx=\"345\" cy=\"560\" r=\"18\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"350.4\" cy=\"553.7\" r=\"6.3\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"455\" cy=\"560\" r=\"18\" fill=\"#111\" stroke=\"#111\" stroke-width=\"4\"/><circle cx=\"460.4\" cy=\"553.7\" r=\"6.3\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"0\"/><circle cx=\"300\" cy=\"610\" r=\"22\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/><circle cx=\"500\" cy=\"610\" r=\"22\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"2.5\"/><path d=\"M312,520 q30,-18 56,0 M488,520 q-30,-18 -56,0\" fill=\"none\" stroke=\"#111\" stroke-width=\"5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M372,600 L428,600 L400,652 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M376,614 L424,614\" fill=\"none\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><ellipse cx=\"335\" cy=\"980\" rx=\"62\" ry=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><ellipse cx=\"465\" cy=\"980\" rx=\"62\" ry=\"26\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\"/><path d=\"M560,900 L660,860 L700,900 L660,940 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M700,900 L740,872 L740,928 Z\" fill=\"#fff\" stroke=\"#111\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><circle cx=\"612\" cy=\"893\" r=\"5\" fill=\"#111\" stroke=\"#111\" stroke-width=\"2.5\"/><path d=\"M130,300 L158.0,300.0\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M145.4,300.0 L152.26375821034605,294.24062301720863\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M145.4,300.0 L152.26375821034605,305.75937698279137\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M130,300 L144.0,324.24871130596426\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M137.7,313.3367912182804 L146.11964588224174,316.4012917024784\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M137.7,313.3367912182804 L136.14411232810428,322.16066868526974\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M130,300 L116.0,324.24871130596426\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M122.3,313.3367912182804 L123.85588767189569,322.16066868526974\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M122.3,313.3367912182804 L113.88035411775826,316.4012917024784\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M130,300 L102.0,300.0\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M114.6,300.0 L107.73624178965395,305.75937698279137\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M114.6,300.0 L107.73624178965395,294.24062301720863\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M130,300 L115.99999999999999,275.75128869403574\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M122.3,286.6632087817197 L113.88035411775826,283.5987082975217\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M122.3,286.6632087817197 L123.85588767189569,277.8393313147303\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M130,300 L144.0,275.75128869403574\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M137.7,286.6632087817196 L136.14411232810428,277.83933131473026\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M137.7,286.6632087817196 L146.11964588224174,283.5987082975216\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M660,330 L688.0,330.0\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M675.4,330.0 L682.263758210346,324.24062301720863\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M675.4,330.0 L682.263758210346,335.75937698279137\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M660,330 L674.0,354.24871130596426\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M667.7,343.3367912182804 L676.1196458822418,346.4012917024784\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M667.7,343.3367912182804 L666.1441123281044,352.16066868526974\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M660,330 L646.0,354.24871130596426\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M652.3,343.3367912182804 L653.8558876718956,352.16066868526974\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M652.3,343.3367912182804 L643.8803541177582,346.4012917024784\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M660,330 L632.0,330.0\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M644.6,330.0 L637.736241789654,335.75937698279137\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M644.6,330.0 L637.736241789654,324.24062301720863\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M660,330 L646.0,305.75128869403574\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M652.3,316.6632087817197 L643.8803541177582,313.5987082975217\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M652.3,316.6632087817197 L653.8558876718956,307.8393313147303\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M660,330 L674.0,305.75128869403574\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M667.7,316.6632087817196 L666.1441123281044,307.83933131473026\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M667.7,316.6632087817196 L676.1196458822418,313.5987082975216\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M110,880 L138.0,880.0\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M125.4,880.0 L132.26375821034605,874.2406230172086\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M125.4,880.0 L132.26375821034605,885.7593769827914\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M110,880 L124.0,904.2487113059643\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M117.7,893.3367912182804 L126.11964588224174,896.4012917024784\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M117.7,893.3367912182804 L116.14411232810431,902.1606686852698\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M110,880 L96.0,904.2487113059643\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M102.3,893.3367912182804 L103.85588767189569,902.1606686852698\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M102.3,893.3367912182804 L93.88035411775826,896.4012917024784\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M110,880 L82.0,880.0\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M94.6,880.0 L87.73624178965395,885.7593769827914\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M94.6,880.0 L87.73624178965395,874.2406230172086\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M110,880 L95.99999999999999,855.7512886940357\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M102.3,866.6632087817196 L93.88035411775826,863.5987082975216\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M102.3,866.6632087817196 L103.85588767189569,857.8393313147302\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M110,880 L124.0,855.7512886940357\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M117.7,866.6632087817196 L116.14411232810431,857.8393313147302\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /><path d=\"M117.7,866.6632087817196 L126.11964588224174,863.5987082975216\" fill=\"none\" stroke=\"#111\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" /></g>\n</svg>"]];
+const PAL=["#e63e68","#f28c28","#f6c928","#9ed34a","#1fa561","#5cc8f0","#2a6fd6","#8c5bd8","#f59bc0","#8a5a35","#f7c9a3","#222222"];
+const rgbOf=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+let pTool="fill",pCol=0,pClip=true,pImg=null,pWall=null,pHist=[],pStroke=null,Z={s:1,tx:0,ty:0,ox:0,oy:0,fw:100,fh:100};
+const pColCv=$("pCol"),pLineCv=$("pLine"),pView=$("paintView"),pInner=$("paintInner");
+const svgUrl=svg=>"data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+
+/* ギャラリー */
+(()=>{
+  const gal=$("gal");
+  ANIMALS.forEach(([n,svg])=>{
+    const b=document.createElement("button");b.className="thumb";
+    const im=new Image();im.src=svgUrl(svg);im.alt=n;const sp=document.createElement("span");sp.textContent=n;
+    b.append(im,sp);b.onclick=()=>openPaintSVG(svg);gal.appendChild(b);
+  });
+  const p=document.createElement("button");p.className="thumb";p.innerHTML="<span style='font-size:30px;line-height:1.2'>＋</span><span>写真から<br>つくる</span>";
+  p.onclick=()=>setMode("make");gal.appendChild(p);
+})();
+const sw=$("sw");
+PAL.forEach((c,i)=>{const b=document.createElement("button");b.style.background=c;b.setAttribute("aria-label","いろ"+(i+1));b.onclick=()=>{pCol=i;syncPaint()};sw.appendChild(b)});
+function syncPaint(){
+  [...sw.children].forEach((b,i)=>b.classList.toggle("on",i===pCol));
+  $("tFill").classList.toggle("on",pTool==="fill");$("tCray").classList.toggle("on",pTool==="cray");$("tErase").classList.toggle("on",pTool==="erase");
+  $("tClip").classList.toggle("on",pClip);$("sizeRow").hidden=pTool==="fill";
+}
+$("tFill").onclick=()=>{pTool="fill";syncPaint()};$("tCray").onclick=()=>{pTool="cray";syncPaint()};$("tErase").onclick=()=>{pTool="erase";syncPaint()};
+$("tClip").onclick=()=>{pClip=!pClip;syncPaint()};syncPaint();
+
+function openPaintSVG(svg){
+  const im=new Image();im.onload=()=>{const t=document.createElement("canvas");t.width=PW;t.height=PH;const g=t.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,PW,PH);g.drawImage(im,0,0,PW,PH);initPaint(t)};
+  im.src=svgUrl(svg);
+}
+function openPaintCanvas(c){
+  const t=document.createElement("canvas");t.width=PW;t.height=PH;const g=t.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,PW,PH);
+  const k=Math.min(PW/c.width,PH/c.height);g.drawImage(c,(PW-c.width*k)/2,(PH-c.height*k)/2,c.width*k,c.height*k);initPaint(t);
+}
+function initPaint(t){
+  const d=t.getContext("2d").getImageData(0,0,PW,PH).data,N=PW*PH,ln=new ImageData(PW,PH);pWall=new Uint8Array(N);
+  for(let i=0;i<N;i++){const a=255-d[i*4];ln.data[i*4]=17;ln.data[i*4+1]=17;ln.data[i*4+2]=17;ln.data[i*4+3]=a;if(a>110)pWall[i]=1}
+  pLineCv.width=pColCv.width=PW;pLineCv.height=pColCv.height=PH;
+  pLineCv.getContext("2d").putImageData(ln,0,0);pImg=new ImageData(PW,PH);pColCv.getContext("2d").putImageData(pImg,0,0);
+  pHist=[];Z.s=1;Z.tx=0;Z.ty=0;show(5);
+}
+function resetZoom(){
+  const r=pView.getBoundingClientRect();if(r.width<2)return;
+  const k=Math.min(r.width/PW,r.height/PH)*.98;Z.fw=PW*k;Z.fh=PH*k;Z.ox=(r.width-Z.fw)/2;Z.oy=(r.height-Z.fh)/2;Z.s=1;Z.tx=0;Z.ty=0;applyZ();
+}
+function applyZ(){
+  pInner.style.width=Z.fw+"px";pInner.style.height=Z.fh+"px";pInner.style.left=Z.ox+"px";pInner.style.top=Z.oy+"px";
+  pInner.style.transform=`translate(${Z.tx}px,${Z.ty}px) scale(${Z.s})`;
+}
+$("pZoom").onclick=resetZoom;window.addEventListener("resize",()=>{if(!$("s6").hidden)resetZoom()});
+$("pBack").onclick=()=>show(4);
+
+/* 塗る処理 */
+function pushHist(){pHist.push(new Uint8ClampedArray(pImg.data));if(pHist.length>8)pHist.shift()}
+function flush(x0,y0,x1,y1){
+  const g=pColCv.getContext("2d");
+  if(x0===undefined)g.putImageData(pImg,0,0);else g.putImageData(pImg,0,0,x0,y0,x1-x0+1,y1-y0+1);
+}
+$("pUndo").onclick=()=>{if(!pHist.length)return;pImg.data.set(pHist.pop());flush()};
+$("pClear").onclick=()=>{pushHist();pImg.data.fill(0);flush()};
+function setPx(i,c,a){
+  const d=pImg.data,o=i*4;
+  if(a>=.999){d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255;return}
+  const has=d[o+3]>0,r=has?d[o]:255,g=has?d[o+1]:255,b=has?d[o+2]:255;
+  d[o]=r*(1-a)+c[0]*a;d[o+1]=g*(1-a)+c[1]*a;d[o+2]=b*(1-a)+c[2]*a;d[o+3]=255;
+}
+function regionAt(x,y){
+  x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=PW||y>=PH)return null;
+  let i=y*PW+x;
+  if(pWall[i]){let f=-1;
+    out:for(let r=1;r<=8;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const X=x+dx,Y=y+dy;if(X<0||Y<0||X>=PW||Y>=PH)continue;if(!pWall[Y*PW+X]){f=Y*PW+X;break out}}
+    if(f<0)return null;i=f}
+  const m=new Uint8Array(PW*PH),st=new Int32Array(PW*PH);let sp=0;st[sp++]=i;m[i]=1;
+  while(sp){const j=st[--sp],jx=j%PW;
+    if(jx>0&&!m[j-1]&&!pWall[j-1]){m[j-1]=1;st[sp++]=j-1}
+    if(jx<PW-1&&!m[j+1]&&!pWall[j+1]){m[j+1]=1;st[sp++]=j+1}
+    if(j>=PW&&!m[j-PW]&&!pWall[j-PW]){m[j-PW]=1;st[sp++]=j-PW}
+    if(j<PW*PH-PW&&!m[j+PW]&&!pWall[j+PW]){m[j+PW]=1;st[sp++]=j+PW}}
+  return m;
+}
+function doFill(x,y){
+  const m=regionAt(x,y);if(!m)return;pushHist();const c=rgbOf(PAL[pCol]);
+  for(let i=0;i<m.length;i++)if(m[i])setPx(i,c,1);flush();
+}
+function dab(x,y,r,mask,erase,c){
+  const x0=Math.max(0,Math.floor(x-r)),x1=Math.min(PW-1,Math.ceil(x+r)),y0=Math.max(0,Math.floor(y-r)),y1=Math.min(PH-1,Math.ceil(y+r));
+  for(let Y=y0;Y<=y1;Y++)for(let X=x0;X<=x1;X++){
+    const dx=X-x,dy=Y-y;if(dx*dx+dy*dy>r*r)continue;const i=Y*PW+X;
+    if(erase){pImg.data[i*4+3]=0;continue}
+    if(mask&&!mask[i])continue;if(Math.random()<.16)continue;setPx(i,c,.62+Math.random()*.38);
+  }
+  return[x0,y0,x1,y1];
+}
+function stroke(x,y){
+  const S=pStroke,r=+$("pSize").value/2*(PW/Z.fw)/Z.s*1.0+1;
+  const dx=x-S.x,dy=y-S.y,dist=Math.hypot(dx,dy),n=Math.max(1,Math.ceil(dist/(r*.5)));
+  let b=[PW,PH,0,0];
+  for(let k=1;k<=n;k++){const px=S.x+dx*k/n,py=S.y+dy*k/n,q=dab(px,py,r,S.mask,pTool==="erase",S.c);b=[Math.min(b[0],q[0]),Math.min(b[1],q[1]),Math.max(b[2],q[2]),Math.max(b[3],q[3])]}
+  S.x=x;S.y=y;flush(b[0],b[1],b[2],b[3]);
+}
+const pPts=new Map();let pinch=null,tapStart=null;
+const toImg=e=>{const r=pLineCv.getBoundingClientRect();return[(e.clientX-r.left)/r.width*PW,(e.clientY-r.top)/r.height*PH]};
+pView.addEventListener("pointerdown",e=>{
+  if(!pImg)return;pView.setPointerCapture(e.pointerId);pPts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pPts.size===1){
+    const[x,y]=toImg(e);tapStart={x:e.clientX,y:e.clientY,ix:x,iy:y,moved:false};
+    if(pTool!=="fill"){pushHist();pStroke={x,y,mask:(pTool==="cray"&&pClip)?regionAt(x,y):null,c:rgbOf(PAL[pCol])};stroke(x,y)}
+  }else if(pPts.size===2){
+    pStroke=null;tapStart=null;const[a,b]=[...pPts.values()],vr=pView.getBoundingClientRect();
+    pinch={d:Math.hypot(a.x-b.x,a.y-b.y),cx:(a.x+b.x)/2-vr.left,cy:(a.y+b.y)/2-vr.top,s:Z.s,tx:Z.tx,ty:Z.ty};
+  }
+});
+pView.addEventListener("pointermove",e=>{
+  if(!pPts.has(e.pointerId))return;pPts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pinch&&pPts.size>=2){
+    const[a,b]=[...pPts.values()],vr=pView.getBoundingClientRect(),cx=(a.x+b.x)/2-vr.left,cy=(a.y+b.y)/2-vr.top;
+    const s=clamp(pinch.s*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d,1,5),ux=(pinch.cx-Z.ox-pinch.tx)/pinch.s,uy=(pinch.cy-Z.oy-pinch.ty)/pinch.s;
+    Z.s=s;Z.tx=cx-Z.ox-ux*s;Z.ty=cy-Z.oy-uy*s;if(s<=1.001){Z.tx=0;Z.ty=0}applyZ();return;
+  }
+  if(tapStart&&Math.hypot(e.clientX-tapStart.x,e.clientY-tapStart.y)>10)tapStart.moved=true;
+  if(pStroke){const[x,y]=toImg(e);stroke(x,y)}
+});
+const pUp=e=>{
+  if(pPts.size===1&&tapStart&&!tapStart.moved&&pTool==="fill")doFill(tapStart.ix,tapStart.iy);
+  pPts.delete(e.pointerId);if(pPts.size<2)pinch=null;if(pPts.size===0){pStroke=null;tapStart=null}
+};
+pView.addEventListener("pointerup",pUp);pView.addEventListener("pointercancel",pUp);
+
+$("pGo").onclick=()=>{
+  if(!pImg)return;const c=document.createElement("canvas");c.width=PW;c.height=PH;const g=c.getContext("2d");
+  g.fillStyle="#fff";g.fillRect(0,0,PW,PH);g.drawImage(pColCv,0,0);g.drawImage(pLineCv,0,0);
+  if(personMask){
+    const k=Math.min(PW/personMask.width,PH/personMask.height),mw=personMask.width*k,mh=personMask.height*k;
+    g.globalCompositeOperation="destination-in";g.drawImage(personMask,(PW-mw)/2,(PH-mh)/2,mw,mh);g.globalCompositeOperation="source-over";Stage.add(c)
+  }
+  else{let st=cutout(c,12,false);if(!st)st=cutout(c,0,true);Stage.add(st)}show(2);
+};
+
+/* ================= ステージ(AR表示) ================= */
+const ANIMS=["ふわふわ","くるくる","ぴょんぴょん","おさんぽ","ぐるっと","ドキドキ","ゆらゆら","かくれんぼ"];
+const Stage=(()=>{
+  const cv=$("stage"),g=cv.getContext("2d"),box=$("stageBox");
+  let items=[],sel=-1,parts=[],spark=true,sound=false,raf=0,last=0,W=300,H=400,dpr=1,actx=null,scene=null,tapMark=null;
+  const COLS=["#e63e68","#f6b92b","#0bb98a","#4cc3ee","#ffffff"];
+  const hash=n=>{const s=Math.sin(n*127.1+311.7)*43758.5453;return s-Math.floor(s)};
+
+  // カメラが使えないときの背景(さくらんぼ畑の丘)
+  function makeScene(){
+    const c=document.createElement("canvas");c.width=540;c.height=800;const x=c.getContext("2d");
+    const sky=x.createLinearGradient(0,0,0,800);sky.addColorStop(0,"#7cc6ee");sky.addColorStop(.55,"#d8f0fb");sky.addColorStop(1,"#fff4d6");
+    x.fillStyle=sky;x.fillRect(0,0,540,800);
+    x.fillStyle="#fff";for(const[a,b,r]of[[110,150,38],[150,140,50],[200,155,34],[390,230,30],[430,220,44],[470,236,28]]){x.beginPath();x.arc(a,b,r,0,7);x.fill()}
+    x.fillStyle="#9fb7d6";x.beginPath();x.moveTo(0,470);x.lineTo(110,380);x.lineTo(210,450);x.lineTo(330,350);x.lineTo(460,440);x.lineTo(540,400);x.lineTo(540,520);x.lineTo(0,520);x.fill();
+    x.fillStyle="#6cc48a";x.beginPath();x.moveTo(0,520);x.quadraticCurveTo(200,440,540,540);x.lineTo(540,800);x.lineTo(0,800);x.fill();
+    x.fillStyle="#52b172";x.beginPath();x.moveTo(0,640);x.quadraticCurveTo(300,560,540,660);x.lineTo(540,800);x.lineTo(0,800);x.fill();
+    return c;
+  }
+
+  /* ----- お祝いの飾り（オリジナル） ----- */
+  const Deco=(()=>{
+    const INK="#2b2540",FONT='"Zen Maru Gothic","Hiragino Maru Gothic ProN","Noto Sans CJK JP",sans-serif';
+    const mk=(w,h)=>{const c=document.createElement("canvas");c.width=w;c.height=h;const x=c.getContext("2d");x.lineJoin="round";x.lineCap="round";return[c,x]};
+    function ell(x,cx,cy,rx,ry,col,lw){x.beginPath();x.ellipse(cx,cy,rx,ry,0,0,7);if(col){x.fillStyle=col;x.fill()}x.lineWidth=lw||5;x.strokeStyle=INK;x.stroke()}
+    function balloon(x,cx,cy,rx,ry,col){
+      x.beginPath();x.moveTo(cx,cy+ry+14);x.lineTo(cx-10,cy+ry+30);x.lineTo(cx+10,cy+ry+30);x.closePath();x.fillStyle=col;x.fill();x.lineWidth=5;x.strokeStyle=INK;x.stroke();
+      ell(x,cx,cy,rx,ry,col);
+      x.save();x.globalAlpha=.5;x.fillStyle="#fff";x.beginPath();x.ellipse(cx-rx*.42,cy-ry*.45,rx*.16,ry*.26,.5,0,7);x.fill();x.restore();
+    }
+    function balloons(){const[c,x]=mk(420,580);
+      x.strokeStyle=INK;x.lineWidth=4;
+      [[120,170,"#e8416a"],[300,150,"#f7b731"],[210,250,"#4cc3f0"]].forEach(b=>{x.beginPath();x.moveTo(b[0],b[1]+130);x.quadraticCurveTo(b[0]+(210-b[0])*.2+15,430,210,560);x.stroke()});
+      balloon(x,120,170,86,108,"#e8416a");balloon(x,300,150,86,108,"#f7b731");balloon(x,210,250,92,114,"#4cc3f0");return c}
+    function cake(){const[c,x]=mk(480,440);
+      ell(x,240,392,215,34,"#f1f1f6");
+      x.beginPath();x.roundRect(60,250,360,130,22);x.fillStyle="#ffe8c2";x.fill();x.lineWidth=5;x.strokeStyle=INK;x.stroke();
+      x.beginPath();x.roundRect(100,160,280,100,20);x.fillStyle="#ffc7d9";x.fill();x.stroke();
+      x.fillStyle="#fff";x.beginPath();x.moveTo(60,272);for(let i=0;i<8;i++){const px=60+i*45;x.quadraticCurveTo(px+22,320,px+45,272)}x.lineTo(420,250);x.lineTo(60,250);x.fill();x.stroke();
+      x.beginPath();x.moveTo(100,182);for(let i=0;i<6;i++){const px=100+i*46.7;x.quadraticCurveTo(px+23,222,px+46.7,182)}x.lineTo(380,160);x.lineTo(100,160);x.fillStyle="#fff";x.fill();x.stroke();
+      [[130,150],[240,142],[350,150]].forEach(b=>{ell(x,b[0],b[1],26,22,"#e8416a");x.fillStyle="#2f9e5b";x.beginPath();x.moveTo(b[0],b[1]-20);x.lineTo(b[0]-12,b[1]-34);x.lineTo(b[0]+12,b[1]-34);x.closePath();x.fill();x.stroke()});
+      [[170,"#4cc3f0"],[240,"#f7b731"],[310,"#10b981"]].forEach(b=>{x.beginPath();x.roundRect(b[0]-9,70,18,64,5);x.fillStyle=b[1];x.fill();x.lineWidth=4;x.stroke();
+        x.beginPath();x.moveTo(b[0],20);x.quadraticCurveTo(b[0]+20,48,b[0],66);x.quadraticCurveTo(b[0]-20,48,b[0],20);x.fillStyle="#ff8a1f";x.fill();x.stroke()});
+      return c}
+    function flower(x,cx,cy,r,col){for(let i=0;i<6;i++){const a=i*Math.PI/3;ell(x,cx+Math.cos(a)*r*.62,cy+Math.sin(a)*r*.62,r*.42,r*.42,col,4)}ell(x,cx,cy,r*.34,r*.34,"#ffd84a",4)}
+    function bouquet(){const[c,x]=mk(480,580);
+      x.strokeStyle="#2f7d4b";x.lineWidth=7;[[120,170],[230,110],[340,170],[170,260],[290,260]].forEach(f=>{x.beginPath();x.moveTo(f[0],f[1]);x.lineTo(240,400);x.stroke()});
+      [[150,300,-.6],[330,300,.6]].forEach(l=>{x.save();x.translate(l[0],l[1]);x.rotate(l[2]);ell(x,0,0,20,52,"#3fbf72");x.restore()});
+      [[120,170,48,"#ff7aa8"],[230,110,52,"#ffd13a"],[340,170,48,"#b58cff"],[170,260,44,"#ff5b6e"],[290,260,44,"#ff9a3c"]].forEach(f=>flower(x,f[0],f[1],f[2],f[3]));
+      x.beginPath();x.moveTo(100,330);x.lineTo(380,330);x.lineTo(250,560);x.lineTo(230,560);x.closePath();x.fillStyle="#ffe3b3";x.fill();x.lineWidth=5;x.strokeStyle=INK;x.stroke();
+      x.beginPath();x.moveTo(240,420);x.quadraticCurveTo(170,380,170,430);x.quadraticCurveTo(190,455,240,430);x.quadraticCurveTo(290,455,310,430);x.quadraticCurveTo(310,380,240,420);x.fillStyle="#ff5b8a";x.fill();x.stroke();
+      ell(x,240,426,16,14,"#e8416a");return c}
+    const NC=["#e8416a","#f7b731","#4cc3f0","#10b981","#b58cff"];
+    function num(n){n=String(n);const[c,x]=mk(400,640);const col=NC[(+n)%NC.length];
+      x.strokeStyle=INK;x.lineWidth=4;x.beginPath();x.moveTo(200,420);x.quadraticCurveTo(250,520,200,620);x.stroke();
+      balloon(x,200,210,160,200,col);
+      const fs=n.length===1?260:n.length===2?190:130;x.font=`900 ${fs}px ${FONT}`;x.textAlign="center";x.textBaseline="middle";
+      x.lineWidth=14;x.strokeStyle=INK;x.strokeText(n,200,218);x.fillStyle="#fff";x.fillText(n,200,218);return c}
+    function ribbon(t){t=(t||"おめでとう").trim();const tk=t.split(/[\s\u3000]+/).filter(Boolean);let lines=[t];
+      if(tk.length>=2){let best=null;for(let i=1;i<tk.length;i++){const a=tk.slice(0,i).join(" "),b=tk.slice(i).join(" "),m=Math.max(a.length,b.length);if(!best||m<best[0])best=[m,[a,b]]}
+        if(best&&(t.length>7||tk.length>2))lines=best[1]}
+      else if(t.length>7)lines=[t.slice(0,Math.ceil(t.length/2)),t.slice(Math.ceil(t.length/2))];
+      const two=lines.length>1;
+      const H=two?340:240,[c,x]=mk(900,H);const cy=H/2;
+      const tail=(l)=>{const sx=l?0:900,dx=l?1:-1;x.beginPath();x.moveTo(sx,cy-70+30);x.lineTo(sx+dx*150,cy-70+30);x.lineTo(sx+dx*150,cy+70+30);x.lineTo(sx,cy+70+30);x.lineTo(sx+dx*50,cy+30);x.closePath();x.fillStyle="#b02a52";x.fill();x.lineWidth=5;x.strokeStyle=INK;x.stroke()};
+      tail(true);tail(false);
+      x.beginPath();x.roundRect(80,cy-(two?120:75),740,two?240:150,12);x.fillStyle="#e8416a";x.fill();x.lineWidth=6;x.strokeStyle=INK;x.stroke();
+      x.fillStyle="#fff";x.strokeStyle=INK;x.textAlign="center";x.textBaseline="middle";
+      const m=Math.max(...lines.map(s=>s.length)),fs=Math.min(two?96:110,Math.floor(660/m));x.font=`900 ${fs}px ${FONT}`;x.lineWidth=Math.max(6,fs*.12);
+      lines.forEach((s,i)=>{const yy=cy+(i-(lines.length-1)/2)*fs*1.15;x.strokeText(s,450,yy);x.fillText(s,450,yy)});return c}
+    return{balloons,cake,bouquet,num,ribbon};
+  })();
+  function resize(){
+    const r=box.getBoundingClientRect();if(r.width<2)return;
+    dpr=Math.min(2,window.devicePixelRatio||1);W=Math.round(r.width);H=Math.round(r.height);
+    cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+"px";cv.style.height=H+"px";
+  }
+  new ResizeObserver(resize).observe(box);
+
+  function dims(it){
+    if(!it.s){const ar=it.img.height/it.img.width;it.s=Math.min(1,(0.42*H)/(0.42*W*ar))}
+    const bw=W*.42*it.s;return{bw,bh:bw*it.img.height/it.img.width};
+  }
+  function pose(it,t){
+    const {bw,bh}=dims(it);let o={dx:0,dy:0,sx:1,sy:1,rot:0,a:1,pv:0,lift:0};
+    switch(it.anim){
+      case 0:o.dy=-Math.sin(t*2)*.06*bh;o.rot=Math.sin(t*1.3)*.06;o.lift=-o.dy;break;
+      case 1:o.rot=t*2.2;break;
+      case 2:{const p=(t*1.6)%1,hp=Math.abs(Math.sin(p*Math.PI)),l=Math.pow(1-hp,6);
+        o.dy=-hp*.45*bh;o.sy=1-.2*l;o.sx=1+.2*l;o.dy+=bh*(1-o.sy)/2;o.lift=-o.dy;break}
+      case 3:{const u=(t*.12)%2,p=u<1?u:2-u;o.dx=(p-.5)*W*.62;o.sx=u<1?1:-1;
+        o.dy=-Math.abs(Math.sin(t*6))*.05*bh;o.rot=Math.sin(t*6)*.06;o.lift=-o.dy;break}
+      case 4:o.sx=Math.cos(t*2.5);if(Math.abs(o.sx)<.02)o.sx=.02;break;
+      case 5:{const k=1+.16*Math.pow(Math.abs(Math.sin(t*3.2)),6);o.sx=o.sy=k;break}
+      case 6:o.rot=Math.sin(t*2)*.25;o.pv=1;break;
+      case 7:{const c=Math.floor(t/4),ph=t%4;o.a=ph<.5?ph/.5:ph>3.5?(4-ph)/.5:1;
+        o.dx=(hash(c+it.id)-.5)*W*.5;o.dy=(hash(c*3+it.id)-.5)*H*.25;break}
+    }
+    return o;
+  }
+  function drawBg(){
+    const v=$("cam");let sw,sh,src;
+    if(camReady()){src=v;sw=v.videoWidth;sh=v.videoHeight}
+    else{scene=scene||makeScene();src=scene;sw=scene.width;sh=scene.height}
+    const k=Math.max(W/sw,H/sh);g.drawImage(src,(W-sw*k)/2,(H-sh*k)/2,sw*k,sh*k);
+  }
+  function star(x,y,r,rot){
+    g.beginPath();for(let i=0;i<8;i++){const a=rot+i*Math.PI/4,rr=i%2?r*.28:r;g.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr)}g.closePath();g.fill();
+  }
+  function render(t,dt,ui){
+    g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);drawBg();
+    items.forEach((it,i)=>{
+      const {bw,bh}=dims(it),p=pose(it,t-it.t0),cx=it.x*W+p.dx,cy=it.y*H+p.dy;
+      // 影
+      const sh=Math.max(.35,1-p.lift/(bh*.6));
+      if(!it.ns){      g.save();g.globalAlpha=.28*p.a;g.fillStyle="#000";g.beginPath();
+      g.ellipse(it.x*W+p.dx,it.y*H+bh*.5+4,bw*.36*sh,bh*.06*sh,0,0,7);g.fill();g.restore();}
+      g.save();g.globalAlpha=p.a;g.translate(cx,p.pv?cy+bh/2:cy);g.rotate(it.rot+p.rot);g.scale(p.sx,p.sy);
+      const oy=p.pv?-bh:-bh/2;
+      g.drawImage(it.img,-bw/2,oy,bw,bh);g.restore();
+      if(ui&&i===sel){g.save();g.translate(it.x*W,it.y*H);g.strokeStyle="#f6b92b";g.lineWidth=3;g.setLineDash([8,6]);
+        g.lineDashOffset=-t*20;g.beginPath();g.roundRect(-bw/2-8,-bh/2-8,bw+16,bh+16,16);g.stroke();g.restore()}
+      if(spark&&dt>0&&Math.random()<dt*18&&p.a>.5)emit(cx+(Math.random()-.5)*bw,cy+(Math.random()-.5)*bh,1);
+    });
+    for(let i=parts.length-1;i>=0;i--){const q=parts[i];q.life-=dt;if(q.life<=0){parts.splice(i,1);continue}
+      q.x+=q.vx*dt;q.y+=q.vy*dt;q.vy+=60*dt;g.globalAlpha=Math.min(1,q.life*2);g.fillStyle=q.c;star(q.x,q.y,q.r,q.rot+q.life*3)}
+    g.globalAlpha=1;
+  }
+  function emit(x,y,n,burst){for(let i=0;i<n;i++){const a=Math.random()*7,v=burst?60+Math.random()*140:10+Math.random()*30;
+    parts.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-(burst?40:20),life:.7+Math.random()*.7,r:4+Math.random()*(burst?9:6),c:COLS[(Math.random()*5)|0],rot:Math.random()*3})}
+    if(parts.length>400)parts.splice(0,parts.length-400)}
+  function pop(f){
+    if(!sound)return;try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+      const o=actx.createOscillator(),a=actx.createGain();o.type="sine";o.frequency.setValueAtTime(f,actx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(f*1.6,actx.currentTime+.12);a.gain.setValueAtTime(.18,actx.currentTime);
+      a.gain.exponentialRampToValueAtTime(.001,actx.currentTime+.2);o.connect(a).connect(actx.destination);o.start();o.stop(actx.currentTime+.22)}catch(_){}
+  }
+  function loop(ts){
+    const t=ts/1000,dt=Math.min(.05,last?t-last:0);last=t;
+    if(W>2)render(t,dt,true);raf=requestAnimationFrame(loop);
+  }
+
+  /* ----- 操作 ----- */
+  const ptr=new Map();let drag=null,pinch=null;
+  const pos=e=>{const r=cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};
+  function hit(p){
+    for(let i=items.length-1;i>=0;i--){const it=items[i],{bw,bh}=dims(it);
+      const dx=p.x-it.x*W,dy=p.y-it.y*H,c=Math.cos(-it.rot),s=Math.sin(-it.rot);
+      const lx=dx*c-dy*s,ly=dx*s+dy*c;if(Math.abs(lx)<bw*.6&&Math.abs(ly)<bh*.6)return i}
+    return -1;
+  }
+  cv.addEventListener("pointerdown",e=>{
+    cv.setPointerCapture(e.pointerId);const p=pos(e);ptr.set(e.pointerId,p);
+    if(ptr.size===1){const i=hit(p);
+      if(i>=0){sel=i;const it=items[i];drag={ox:p.x-it.x*W,oy:p.y-it.y*H,moved:0};syncUi()}
+      else{drag=null;emit(p.x,p.y,16,true);pop(520)}}
+    if(ptr.size===2&&items[sel]){const[a,b]=[...ptr.values()],it=items[sel];
+      pinch={d:Math.hypot(a.x-b.x,a.y-b.y),a:Math.atan2(b.y-a.y,b.x-a.x),s:it.s,r:it.rot};drag=null}
+  });
+  cv.addEventListener("pointermove",e=>{
+    if(!ptr.has(e.pointerId))return;const p=pos(e);ptr.set(e.pointerId,p);const it=items[sel];
+    if(pinch&&ptr.size>=2&&it){const[a,b]=[...ptr.values()];
+      it.s=clamp(pinch.s*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d,.15,3);it.rot=pinch.r+Math.atan2(b.y-a.y,b.x-a.x)-pinch.a}
+    else if(drag&&it){it.x=clamp((p.x-drag.ox)/W,0,1);it.y=clamp((p.y-drag.oy)/H,0,1)}
+  });
+  const up=e=>{ptr.delete(e.pointerId);if(ptr.size<2)pinch=null;if(ptr.size===0)drag=null};
+  cv.addEventListener("pointerup",up);cv.addEventListener("pointercancel",up);
+  cv.addEventListener("wheel",e=>{const it=items[sel];if(!it)return;e.preventDefault();it.s=clamp(it.s*(e.deltaY<0?1.06:.94),.15,3)},{passive:false});
+  cv.style.touchAction="none";
+
+  /* ----- UI ----- */
+  const chips=$("chips");
+  ANIMS.forEach((n,i)=>{const b=document.createElement("button");b.textContent=n;b.onclick=()=>{
+    if(!items[sel])return;items[sel].anim=i;items[sel].t0=last;syncUi();pop(700);
+    const it=items[sel];emit(it.x*W,it.y*H,14,true)};chips.appendChild(b)});
+  function syncUi(){
+    [...chips.children].forEach((b,i)=>b.classList.toggle("on",!!items[sel]&&items[sel].anim===i));
+    const nn=items.filter(i=>!i.deco).length,nd=items.length-nn;$("stat").textContent="ぬりえ "+nn+" まい"+(nd?" ・ かざり "+nd:"")+" ・ ドラッグで移動、2本指で拡大と回転";
+    $("btnAdd").disabled=items.filter(i=>!i.deco).length>=6;$("btnGift").disabled=items.length>=12;
+  }
+  $("btnSpark").onclick=e=>{spark=!spark;e.currentTarget.classList.toggle("on",spark)};
+  $("btnSound").onclick=e=>{sound=!sound;e.currentTarget.classList.toggle("on",sound);e.currentTarget.textContent=sound?"音あり":"音";pop(600)};
+  $("btnAdd").onclick=()=>home();
+  $("btnDel").onclick=()=>{if(!items[sel])return;items.splice(sel,1);sel=items.length-1;if(!items.length)home();else syncUi()};
+  $("btnNext").onclick=()=>{items=[];sel=-1;parts=[];home()};
+
+  /* ----- 記念写真 ----- */
+  let snapBlob=null;
+  $("btnSnap").onclick=()=>{
+    render(last,0,false);
+    const o=document.createElement("canvas");o.width=cv.width;o.height=cv.height;const x=o.getContext("2d");
+    x.drawImage(cv,0,0);const bh=Math.round(o.height*.075);
+    x.fillStyle="rgba(14,20,48,.82)";x.fillRect(0,o.height-bh,o.width,bh);
+    x.fillStyle="#fff";x.textBaseline="middle";x.font=`${Math.round(bh*.48)}px "Mochiy Pop One","Hiragino Maru Gothic ProN",sans-serif`;
+    x.fillText("ぬりえAR",bh*.4,o.height-bh/2);
+    x.textAlign="right";x.font=`${Math.round(bh*.36)}px "Zen Maru Gothic",sans-serif`;
+    x.fillText(new Date().toLocaleDateString("ja-JP"),o.width-bh*.4,o.height-bh/2);
+    pop(880);emit(W/2,H/2,30,true);
+    o.toBlob(b=>{snapBlob=b;$("snapImg").src=o.toDataURL("image/jpeg",.9);$("snapModal").hidden=false},"image/jpeg",.9);
+  };
+  $("btnClose").onclick=()=>{$("snapModal").hidden=true};
+  $("btnSave").onclick=async()=>{
+    if(!snapBlob)return;const name="nurie-ar.jpg";
+    try{
+      const dl=window.claude&&window.claude.use?await window.claude.use("downloads"):null;
+      if(dl){await dl.save({filename:name,data:snapBlob});return}
+    }catch(_){return}
+    const a=document.createElement("a");a.href=URL.createObjectURL(snapBlob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+  };
+
+  const addDeco=(img,o)=>{api.add(img,Object.assign({deco:true,anim:0},o||{}));$("giftModal").hidden=true};
+  $("btnGift").onclick=()=>{$("giftModal").hidden=false};
+  $("gClose").onclick=()=>{$("giftModal").hidden=true};
+  $("gRibbon").onclick=()=>addDeco(Deco.ribbon($("gMsg").value),{s:2.05,x:.5,y:.2,anim:6,ns:1});
+  $("gNum").onclick=()=>{const v=Math.max(0,Math.min(120,parseInt($("gAge").value,10)||0));addDeco(Deco.num(v),{x:.8,y:.5})};
+  $("gBalloon").onclick=()=>addDeco(Deco.balloons(),{x:.2,y:.5});
+  $("gCake").onclick=()=>addDeco(Deco.cake(),{x:.27,y:.82});
+  $("gBouquet").onclick=()=>addDeco(Deco.bouquet(),{x:.75,y:.8});
+  const api={
+    add(img,o){o=o||{};const nd=items.filter(i=>!i.deco).length;
+      items.push({id:items.length+Math.floor(Math.random()*50),img,deco:!!o.deco,ns:!!o.ns,x:o.x!==undefined?o.x:.5+(items.length?(Math.random()-.5)*.3:0),y:o.y!==undefined?o.y:.55+(items.length?(Math.random()-.5)*.2:0),s:o.s||0,rot:0,anim:o.anim!==undefined?o.anim:nd%ANIMS.length,t0:last});
+      sel=items.length-1;syncUi();pop(660)},
+    start(){resize();syncUi();last=0;cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);
+      setTimeout(()=>{const it=items[sel];if(it)emit(it.x*W,it.y*H,24,true)},200)},
+    stop(){cancelAnimationFrame(raf)}
+  };
+  return api;
+})();
+
+show(0);
+})();
+</script>
+</body></html>
