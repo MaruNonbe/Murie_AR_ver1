@@ -164,6 +164,8 @@ input[type=text]{font:inherit;font-weight:700;font-size:15px;border:2px solid va
       <label class="sl">細かさ<input type="range" id="lDetail" min="0" max="100" value="55"></label>
       <label class="sl">線の太さ<input type="range" id="lThick" min="1" max="5" value="2"></label>
       <label class="sl">線を減らす<input type="range" id="lSmooth" min="0" max="3" value="1"></label>
+      <label class="sl">線のつながり（開いた線を補正）<input type="range" id="lClose" min="0" max="3" value="1"></label>
+      <div class="stat" id="closeHelp">弱：小さな隙間だけ補正　中：標準　強：大きめの隙間も補正</div>
       <div class="stat">仕上がりを選択</div>
       <div class="row" id="faceStyles">
         <button type="button" data-style="real" class="on">本人そっくり</button>
@@ -521,7 +523,7 @@ function blurP(p,w,h,r){
     for(let y=0;y<h;y++){o[y*w+x]=s/n;s+=t[Math.min(h-1,y+r+1)*w+x]-t[Math.max(0,y-r)*w+x]}}
   return o;
 }
-function lineArt(src,detail,thick,smooth){
+function lineArt(src,detail,thick,smooth,closeStrength){
   const w=src.width,h=src.height,N=w*h,d=src.getContext("2d").getImageData(0,0,w,h).data,r=faceStyle==="real"?1+smooth*2:2+smooth*2;
   const ch=[0,1,2].map(k=>{const p=new Float32Array(N);for(let i=0;i<N;i++)p[i]=d[i*4+k];return blurP(blurP(p,w,h,r),w,h,r)});
   // 本人そっくりは細部を多く、似顔絵風は陰影や細かなシワを抑える
@@ -538,6 +540,13 @@ function lineArt(src,detail,thick,smooth){
     if(m>T)mask[i]=1;
   }
   if(thick>1)mask=morph(mask,w,h,thick-1,true);
+  // 開曲線の小さな切れ目を閉じる（モルフォロジー closing：膨張→収縮）
+  // 強さ0は無効、1〜3は段階的に補正。顔の輪郭を過度につながないよう小半径に制限。
+  if(closeStrength>0){
+    const cr=Math.min(3,Math.max(1,Math.round(closeStrength)));
+    const expanded=morph(mask,w,h,cr,true,0);
+    mask=morph(expanded,w,h,cr,false,1);
+  }
   const out=new Uint8ClampedArray(N*4);
   for(let i=0;i<N;i++){
     const on=mask[i],v=on?12:255,o=i*4;
@@ -548,10 +557,10 @@ function lineArt(src,detail,thick,smooth){
 let lineTimer=0;
 function runLine(){
   if(!makeSrc)return;
-  lineCv=lineArt(makeSrc,+$("lDetail").value,+$("lThick").value,+$("lSmooth").value);
+  lineCv=lineArt(makeSrc,+$("lDetail").value,+$("lThick").value,+$("lSmooth").value,+$("lClose").value);
   const v=$("lineView");v.width=lineCv.width;v.height=lineCv.height;const g=v.getContext("2d");g.clearRect(0,0,v.width,v.height);g.drawImage(lineCv,0,0);
 }
-["lDetail","lThick","lSmooth"].forEach(id=>{$(id).oninput=()=>{clearTimeout(lineTimer);lineTimer=setTimeout(runLine,120)}});
+["lDetail","lThick","lSmooth","lClose"].forEach(id=>{$(id).oninput=()=>{clearTimeout(lineTimer);lineTimer=setTimeout(runLine,120)}});
 
 function composeA4(){
   const W=1240,H=1754,c=document.createElement("canvas");c.width=W;c.height=H;const g=c.getContext("2d");
